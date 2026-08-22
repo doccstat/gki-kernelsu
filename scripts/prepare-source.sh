@@ -1,0 +1,163 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+project_root=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+# shellcheck disable=SC1091
+source "$project_root/config/pins.env"
+
+variant=${VARIANT:-sukisu-kpm}
+variant_file="$project_root/config/variants/$variant.env"
+[[ -f "$variant_file" ]] || { echo "unknown variant: $variant" >&2; exit 1; }
+# shellcheck disable=SC1090
+source "$variant_file"
+
+if [[ "$ENABLE_KPM" == 1 && "$ENABLE_SUSFS" == 1 ]]; then
+  echo "unsupported combined KPM+SUSFS variant" >&2
+  exit 1
+fi
+
+work_dir=${YOGI_WORKDIR:-$project_root/.work/gs101-android16-6.12}
+source_dir=$work_dir/source
+common_dir=$source_dir/common
+root_dir=$work_dir/root
+mkdir -p "$root_dir"
+
+clone_pinned() {
+  local repo_url=$1
+  local commit=$2
+  local checkout_dir=$3
+  if [[ ! -d "$checkout_dir/.git" ]]; then
+    git clone --filter=blob:none --no-tags --no-checkout "$repo_url" "$checkout_dir"
+  fi
+  git -C "$checkout_dir" fetch --no-tags origin "$commit"
+  git -C "$checkout_dir" checkout --detach "$commit"
+}
+
+case "$ROOT_KIND" in
+  sukisu)
+    clone_pinned "$SUKISU_REPO" "$SUKISU_REF" "$root_dir/SukiSU-Ultra"
+    root_source=$root_dir/SukiSU-Ultra
+    python3 - "$root_source/kernel/Kbuild" <<'PY'
+import re
+from pathlib import Path
+import sys
+
+kbuild = Path(sys.argv[1])
+text = kbuild.read_text()
+updated = re.sub(r"^KSU_GITHUB_VER\s*:=.*$", "KSU_GITHUB_VER := 4.1.3", text, flags=re.MULTILINE)
+updated = re.sub(r"^GITHUB_COMMITS\s*:=.*$", "GITHUB_COMMITS :=", updated, flags=re.MULTILINE)
+if updated == text:
+    raise SystemExit("SukiSU Kbuild offline pin did not match expected lines")
+kbuild.write_text(updated)
+PY
+    ;;
+  resukisu)
+    clone_pinned "$RESUKISU_REPO" "$RESUKISU_REF" "$root_dir/ReSukiSU"
+    root_source=$root_dir/ReSukiSU
+    ;;
+  *)
+    echo "invalid ROOT_KIND=$ROOT_KIND" >&2
+    exit 1
+    ;;
+esac
+
+drivers_dir=$common_dir/drivers
+kernel_link=$drivers_dir/kernelsu
+expected_target=$(cd "$root_source/kernel" && pwd -P)
+target_rel=$(python3 - "$drivers_dir" "$root_source/kernel" <<'PY'
+import os
+import sys
+print(os.path.relpath(os.path.realpath(sys.argv[2]), os.path.realpath(sys.argv[1])))
+PY
+)
+mkdir -p "$drivers_dir"
+if [[ -L "$kernel_link" ]]; then
+  actual_target=$(cd "$kernel_link" && pwd -P)
+  if [[ "$actual_target" != "$expected_target" ]]; then
+    rm "$kernel_link"
+    ln -s "$target_rel" "$kernel_link"
+  fi
+elif [[ -e "$kernel_link" ]]; then
+  echo "refusing to replace non-symlink $kernel_link" >&2
+  exit 1
+else
+  ln -s "$target_rel" "$kernel_link"
+fi
+
+grep -qxF 'obj-$(CONFIG_KSU) += kernelsu/' "$drivers_dir/Makefile" 2>/dev/null ||
+  printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> "$drivers_dir/Makefile"
+
+python3 - "$drivers_dir/Kconfig" <<'PY'
+from pathlib import Path
+import sys
+
+kconfig = Path(sys.argv[1])
+text = kconfig.read_text()
+entry = 'source "drivers/kernelsu/Kconfig"'
+if entry not in text:
+    marker = "\nendmenu"
+    if marker not in text:
+        raise SystemExit(f"cannot find endmenu in {kconfig}")
+    kconfig.write_text(text.replace(marker, f"\n{entry}{marker}", 1))
+PY
+
+fragment=$source_dir/private/google-modules/soc/gs/arch/arm64/configs/slider_gki.fragment
+[[ -f "$fragment" ]] || { echo "missing GS101 config fragment: $fragment" >&2; exit 1; }
+
+set_config() {
+  local key=$1 value=$2
+  sed -i -E "/^(# )?CONFIG_${key}(=.*| is not set)$/d" "$fragment"
+  printf 'CONFIG_%s=%s\n' "$key" "$value" >> "$fragment"
+}
+
+unset_config() {
+  local key=$1
+  sed -i -E "/^(# )?CONFIG_${key}(=.*| is not set)$/d" "$fragment"
+  printf '# CONFIG_%s is not set\n' "$key" >> "$fragment"
+}
+
+set_config KSU y
+set_config KPROBES y
+set_config KSU_DEBUG n
+set_config KSU_DISABLE_MANAGER n
+set_config KSU_DISABLE_POLICY n
+
+if [[ "$ENABLE_KPM" == 1 ]]; then
+  set_config KPM y
+  unset_config KSU_SUSFS
+else
+  unset_config KPM
+fi
+
+if [[ "$ENABLE_SUSFS" == 1 ]]; then
+  susfs_dir=$root_dir/susfs4ksu
+  clone_pinned "$SUSFS_REPO" "$SUSFS_REF" "$susfs_dir"
+  marker="$common_dir/.yogi-susfs-$SUSFS_REF"
+  if [[ ! -e "$marker" ]]; then
+    cp "$susfs_dir/kernel_patches/fs/"* "$common_dir/fs/"
+    cp "$susfs_dir/kernel_patches/include/linux/"* "$common_dir/include/linux/"
+    patch --batch --forward --silent -d "$common_dir" -p1 < \
+      "$susfs_dir/$SUSFS_PATCH"
+    touch "$marker"
+  fi
+  set_config KSU_SUSFS y
+  set_config KSU_SUSFS_SUS_PATH y
+  set_config KSU_SUSFS_SUS_MOUNT y
+  set_config KSU_SUSFS_SUS_KSTAT y
+  set_config KSU_SUSFS_SPOOF_UNAME y
+  set_config KSU_SUSFS_ENABLE_LOG y
+  set_config KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS y
+  set_config KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG y
+  set_config KSU_SUSFS_OPEN_REDIRECT y
+  set_config KSU_SUSFS_SUS_MAP y
+  unset_config KSU_TRACEPOINT_HOOK
+  unset_config KSU_MANUAL_HOOK
+else
+  unset_config KSU_SUSFS
+  unset_config KSU_TRACEPOINT_HOOK
+  unset_config KSU_MANUAL_HOOK
+fi
+
+printf '%s\n' "$VARIANT_NAME" > "$work_dir/selected-variant"
+git -C "$common_dir" status --short > "$work_dir/source-modifications.txt"
+echo "prepared $VARIANT_NAME in $source_dir"

@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Local-manifest overlay for the pinned Google gs101 source set.
+  The base default.xml is checked out at GOOGLE_MANIFEST_REF. Every project
+  below is then extended to an immutable commit, so branch movement cannot
+  silently change a build.
+-->
+<manifest>
+  <extend-project path="build/kernel" name="kernel/build" revision="a71b075c1d43d226779d2e834433e7a1d1885beb" />
+  <extend-project path="common" name="kernel/common" revision="7d38f5b0e4b0d06970e261174e220a997a0908e7" />
+  <extend-project path="private/google-modules/amplifiers" name="kernel/google-modules/amplifiers" revision="3008d80aefc4c7a9588dcfa93864763265c62221" />
+  <extend-project path="private/google-modules/aoc" name="kernel/google-modules/aoc" revision="537152eb781c8a22b71e839de2ee7188e6f3253f" />
+  <extend-project path="private/google-modules/aoc_ipc" name="kernel/google-modules/aoc-ipc" revision="c2f5b259a5b2b2358e172ceb402e9f719e358bfa" />
+  <extend-project path="private/google-modules/bluetooth/broadcom" name="kernel/google-modules/bluetooth/broadcom" revision="7988cb75c3cb5fa02630ee7675c03dd46ab21696" />
+  <extend-project path="private/google-modules/bms" name="kernel/google-modules/bms" revision="233a2271d804b3170c7895b9285079fe35eaa400" />
+  <extend-project path="private/google-modules/display" name="kernel/google-modules/display" revision="a4faedd69526c262ef4a630daf0daeb6a3612633" />
+  <extend-project path="private/google-modules/edgetpu/abrolhos" name="kernel/google-modules/edgetpu/abrolhos" revision="5e8a05a6a258407ba7e5ad78c3ab56043ed9b8cc" />
+  <extend-project path="private/google-modules/gpu" name="kernel/google-modules/gpu" revision="6258248dfb579acd01288c9c2f8b16732ea1c4d9" />
+  <extend-project path="private/google-modules/lwis" name="kernel/google-modules/lwis" revision="6eda505a10e3a17b124f0f99a5c4db4aefe17302" />
+  <extend-project path="private/google-modules/nfc" name="kernel/google-modules/nfc" revision="be6e4bd2b3c48e8d1080b16cb776eebac944546d" />
+  <extend-project path="private/google-modules/power/reset" name="kernel/google-modules/power/reset" revision="414b01c9c1a5169ba8fc146139d4cec292d7a6c6" />
+  <extend-project path="private/google-modules/power/mitigation" name="kernel/google-modules/power/mitigation" revision="c405ca53f085b3f91cf6c1567e52f16d128dede3" />
+  <extend-project path="private/google-modules/soc/gs" name="kernel/google-modules/raviole-device" revision="a51d41a7af6c7c70de78b7ffdc78a5373b55959e" />
+  <extend-project path="private/google-modules/touch/common" name="kernel/google-modules/touch/common" revision="7e93334f2eb26b7fed93c2873e1073d58a4842d6" />
+  <extend-project path="private/google-modules/touch/fts" name="kernel/google-modules/touch/fts_touch" revision="a33a3f34185a93745913e2439031d0a730dfa879" />
+  <extend-project path="private/google-modules/touch/sec" name="kernel/google-modules/touch/sec_touch" revision="60c728557cbe42b99e0e6d503775e8e70a3c47ff" />
+  <extend-project path="private/google-modules/trusty" name="kernel/google-modules/trusty" revision="1805cbf83722e8a0e589de13f6ab596b80c6a306" />
+  <extend-project path="private/google-modules/uwb" name="kernel/google-modules/uwb" revision="aae2106a1798127811e182f11994bcb6e26c8103" />
+  <extend-project path="private/google-modules/video/gchips" name="kernel/google-modules/video/gchips" revision="26dbdb84e2053779d621871f3e74c41f2e1f9c9e" />
+  <extend-project path="private/google-modules/wlan/bcmdhd4389" name="kernel/google-modules/wlan/bcmdhd/bcm4389" revision="be4270316395c92dc265efd91718a99ae6755791" />
+  <extend-project path="prebuilts/boot-artifacts" name="platform/prebuilts/boot-artifacts" revision="3b9fd883e507e7bbf8ee8cad5207ea16f6202fec" />
+  <extend-project path="prebuilts/kernel-build-tools" name="kernel/prebuilts/build-tools" revision="811c6e2938d53b3c318d7635b03931601a68c765" />
+  <extend-project path="external/bazel-contrib-bazel_features" name="platform/external/bazel-contrib-bazel_features" revision="5716f9a0bd746eab4771e443196e3a783c114405" />
+  <extend-project path="external/bazel-skylib" name="platform/external/bazel-skylib" revision="8dc2399ac318aaa8318e5041de9c66945539f09b" />
+  <extend-project path="external/bazelbuild-bazel-central-registry" name="platform/external/bazelbuild-bazel-central-registry" revision="5fbb731d1654da0cc0a51b6c4dc213ef69a30b9d" />
+  <extend-project path="external/bazelbuild-platforms" name="platform/external/bazelbuild-platforms" revision="6d0e9339ebcce217bd6cc45d81f8612ce78ab761" />
+  <extend-project path="external/bazelbuild-rules_cc" name="platform/external/bazelbuild-rules_cc" revision="07fd761ee642018946a1cf51c69be663190140a6" />
+  <extend-project path="external/bazelbuild-rules_license" name="platform/external/bazelbuild-rules_license" revision="48d5273aeec5d79939b6db8ed317d870fd967189" />
+  <extend-project path="external/bazelbuild-rules_pkg" name="platform/external/bazelbuild-rules_pkg" revision="8b19e046ffc9db31eda9ae9334476532b5e848ef" />
+  <extend-project path="external/bazelbuild-rules_python" name="platform/external/bazelbuild-rules_python" revision="c198cb06e0374124467250b3de653d7159f333d1" />
+  <extend-project path="external/bazelbuild-rules_rust" name="platform/external/bazelbuild-rules_rust" revision="b6d7e81a4e27a5f0106668fb71b05d6784dbde6f" />
+  <extend-project path="external/bazelbuild-rules_shell" name="platform/external/bazelbuild-rules_shell" revision="50c6599d83e03a746845ddd2b6ba7ff8d5e57fe0" />
+  <extend-project path="external/libcap" name="platform/external/libcap" revision="9a2ead0b5a377a75849cb0656aa553b5452a7080" />
+  <extend-project path="external/libcap-ng" name="platform/external/libcap-ng" revision="8dd5e09d5faf27a871e8654ddaa2d2af7c696578" />
+  <extend-project path="external/lz4" name="platform/external/lz4" revision="f2a717445d3a8a1aaa5aeef1cb2e9a4bc739e9b1" />
+  <extend-project path="external/pigz" name="platform/external/pigz" revision="9bc9fa17d499ddde88b77820f6d063e16c0cdd42" />
+  <extend-project path="external/python/absl-py" name="platform/external/python/absl-py" revision="36b3259addca1297dad9e00de002cb4a9c85766a" />
+  <extend-project path="external/toybox" name="platform/external/toybox" revision="0696100f220f78a264e49933bfaf05c7c54873d5" />
+  <extend-project path="external/zlib" name="platform/external/zlib" revision="0664e5ce6422f79bfedf299477f19c6f532cdc3d" />
+  <extend-project path="external/zopfli" name="platform/external/zopfli" revision="610a2d4f13c64608d21b083177838368c9fcb1cc" />
+  <extend-project path="prebuilts/build-tools" name="platform/prebuilts/build-tools" revision="574765b494f226284968a8d156437e4c932aad61" />
+  <extend-project path="prebuilts/clang-tools" name="platform/prebuilts/clang-tools" revision="c03d5bc912878cdcbdc38fcb003e94116b978956" />
+  <extend-project path="prebuilts/clang/host/linux-x86" name="platform/prebuilts/clang/host/linux-x86" revision="77c95e8253c2c82ffd4fee92c0ad9f5ac1e8ca04" />
+  <extend-project path="prebuilts/gcc/linux-x86/host/x86_64-linux-glibc2.17-4.8" name="platform/prebuilts/gcc/linux-x86/host/x86_64-linux-glibc2.17-4.8" revision="81777ac458f7a91041c810dff65d1cdf3f41d790" />
+  <extend-project path="prebuilts/jdk/jdk11" name="platform/prebuilts/jdk/jdk11" revision="b43dc974b874d58e939c51c774276d3ed173e4e1" />
+  <extend-project path="prebuilts/rust" name="platform/prebuilts/rust" revision="5c78b1e636b2bf68d46a6980437590fddca64147" />
+  <extend-project path="tools/mkbootimg" name="platform/system/tools/mkbootimg" revision="167f905b0c2bf311fedb039e8b30840176750ae8" />
+  <extend-project path="prebuilts/ndk-r26" name="toolchain/prebuilts/ndk/r26" revision="e535051ebc04204cec44bde38f62385d63180388" />
+</manifest>
