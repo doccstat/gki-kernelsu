@@ -42,7 +42,11 @@ mkdir -p "$source_dir/.repo/local_manifests"
 install -m 0644 "$project_root/config/manifest-lock.xml" \
   "$source_dir/.repo/local_manifests/yogi-lock.xml"
 
+# The manifest checkout is deliberately detached at GOOGLE_MANIFEST_REF above.
+# Without --no-manifest-update, repo sync tries to fetch the host Git default
+# branch (master/main) for the manifests project and loses the pinned checkout.
 (cd "$source_dir" && "$repo_bin" sync \
+  --no-manifest-update \
   --current-branch \
   --force-sync \
   --no-clone-bundle \
@@ -52,4 +56,3 @@ install -m 0644 "$project_root/config/manifest-lock.xml" \
 
 YOGI_WORKDIR="$work_dir" "$project_root/scripts/verify-source.sh"
 echo "Google source is ready: $source_dir"
-
