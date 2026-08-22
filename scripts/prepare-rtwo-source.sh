@@ -117,9 +117,10 @@ if [[ "$ENABLE_SUSFS" == 1 ]]; then
   clone_pinned "$SUSFS_REPO" "$SUSFS_REF" "$susfs_dir"
   cp "$susfs_dir/kernel_patches/fs/"* "$source_dir/fs/"
   cp "$susfs_dir/kernel_patches/include/linux/"* "$source_dir/include/linux/"
-  # The current 5.15.208 source is past the Android 13 trace-hook move. These
-  # includes are exactly the compatibility removals used by WildKernels for
-  # android13-5.15 sublevels >= 197, and must happen before the SUSFS patch.
+  # The current 5.15.208 source carries these trace-hook includes while the
+  # pinned SUSFS patch was authored against an older 5.15 layout. Remove them
+  # temporarily so the patch context applies, then restore them below because
+  # the Qualcomm source still calls the hooks they declare.
   python3 - "$source_dir/fs/namespace.c" "$source_dir/fs/proc/task_mmu.c" <<'PY'
 from pathlib import Path
 import sys
@@ -133,6 +134,26 @@ for name, needle in (
                             if line.strip() != needle))
 PY
   patch --batch --forward --silent -d "$source_dir" -p1 < "$susfs_dir/$SUSFS_PATCH"
+  python3 - "$source_dir/fs/namespace.c" "$source_dir/fs/proc/task_mmu.c" <<'PY'
+from pathlib import Path
+import sys
+
+for name, anchor, include in (
+    (sys.argv[1], '#include "internal.h"', '#include <trace/hooks/blk.h>'),
+    (sys.argv[2], '#include <linux/pkeys.h>', '#include <trace/hooks/mm.h>'),
+):
+    path = Path(name)
+    lines = path.read_text().splitlines(True)
+    if any(line.strip() == include for line in lines):
+        continue
+    for index, line in enumerate(lines):
+        if line.strip() == anchor:
+            lines.insert(index + 1, include + '\n')
+            break
+    else:
+        raise SystemExit(f'cannot restore {include} in {path}')
+    path.write_text(''.join(lines))
+PY
 fi
 
 cat > "$work_dir/root.fragment" <<EOF
