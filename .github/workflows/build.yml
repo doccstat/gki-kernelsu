@@ -1,0 +1,50 @@
+name: Build yogi GKI kernel
+
+on:
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: Root variant
+        required: true
+        default: sukisu-kpm
+        type: choice
+        options:
+          - sukisu-kpm
+          - resukisu-susfs
+  push:
+    paths:
+      - '.github/workflows/build.yml'
+      - 'config/**'
+      - 'scripts/**'
+      - 'README.md'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      VARIANT: ${{ inputs.variant || 'sukisu-kpm' }}
+    steps:
+      - name: Checkout workspace
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            bc bison build-essential ca-certificates cpio flex git libelf-dev \
+            libssl-dev openssl perl python3 rsync unzip zip zstd
+
+      - name: Build pinned source
+        run: ./scripts/build.sh
+
+      - name: Upload kernel image and metadata
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        with:
+          name: yogi-${{ env.VARIANT }}-${{ github.sha }}
+          path: out/${{ env.VARIANT }}/
+          if-no-files-found: error
+

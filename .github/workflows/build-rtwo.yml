@@ -1,0 +1,49 @@
+name: Build rtwo GKI KernelSU variants
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'config/rtwo/**'
+      - 'scripts/build-rtwo.sh'
+      - 'scripts/prepare-rtwo-source.sh'
+      - 'scripts/verify-rtwo-pins.sh'
+      - '.github/workflows/build-rtwo.yml'
+      - 'README.md'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        variant:
+          - sukisu-kpm
+          - resukisu-susfs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      VARIANT: ${{ matrix.variant }}
+    steps:
+      - name: Checkout workspace
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            bc bison build-essential ca-certificates clang cpio flex git \
+            lld libelf-dev libssl-dev llvm openssl perl python3 rsync unzip \
+            zip zstd
+
+      - name: Build pinned rtwo Image
+        run: ./scripts/build-rtwo.sh
+
+      - name: Upload rtwo kernel image and metadata
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        with:
+          name: rtwo-${{ matrix.variant }}-${{ github.sha }}
+          path: out/rtwo/${{ matrix.variant }}/
+          if-no-files-found: error
