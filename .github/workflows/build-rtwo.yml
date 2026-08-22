@@ -38,6 +38,18 @@ jobs:
             lld libelf-dev libssl-dev llvm openssl perl python3 rsync unzip \
             zip zstd
 
+      - name: Add swap for LLVM LTO
+        run: |
+          set -euo pipefail
+          if ! swapon --show --noheadings | grep -q .; then
+            swap_path="$RUNNER_TEMP/gki-kernelsu.swap"
+            sudo fallocate -l 8G "$swap_path"
+            sudo chmod 600 "$swap_path"
+            sudo mkswap "$swap_path"
+            sudo swapon "$swap_path"
+          fi
+          free -h
+
       - name: Build pinned rtwo Image
         run: ./scripts/build-rtwo.sh
 
