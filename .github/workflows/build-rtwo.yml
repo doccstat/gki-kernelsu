@@ -27,6 +27,8 @@ jobs:
     env:
       VARIANT: ${{ matrix.variant }}
       KERNEL_BUILD_JOBS: 2
+      KERNEL_LTO_JOBS: 1
+      KERNEL_BUILD_HEARTBEAT_SECONDS: 60
     steps:
       - name: Checkout workspace
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -63,14 +65,16 @@ jobs:
       - name: Add swap for LLVM LTO
         run: |
           set -euo pipefail
-          if ! swapon --show --noheadings | grep -q .; then
-            swap_path="$RUNNER_TEMP/gki-kernelsu.swap"
+          swap_path="$RUNNER_TEMP/gki-kernelsu.swap"
+          if ! swapon --show=NAME --noheadings --raw | grep -Fxq "$swap_path"; then
             sudo fallocate -l 16G "$swap_path"
             sudo chmod 600 "$swap_path"
             sudo mkswap "$swap_path"
             sudo swapon "$swap_path"
           fi
+          sudo sysctl vm.swappiness=100
           free -h
+          swapon --show
 
       - name: Build pinned rtwo Image
         run: ./scripts/build-rtwo.sh
