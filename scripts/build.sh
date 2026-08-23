@@ -40,10 +40,58 @@ done < <(find bazel-bin bazel-out out -type f -name Image -print 2>/dev/null | s
   exit 1
 }
 
+boot_image_file=
+for candidate in \
+  "$source_dir/out/slider/dist/boot.img" \
+  "$source_dir/bazel-bin/private/google-modules/soc/gs/slider_dist/boot.img" \
+  "$source_dir/bazel-bin/private/google-modules/soc/gs/boot.img"; do
+  if [[ -f "$candidate" ]]; then
+    boot_image_file=$candidate
+    break
+  fi
+done
+if [[ -z "$boot_image_file" ]]; then
+  while IFS= read -r candidate; do
+    if python3 - "$candidate" <<'PY'
+import sys
+from pathlib import Path
+
+with Path(sys.argv[1]).open("rb") as stream:
+    raise SystemExit(0 if stream.read(8) == b"ANDROID!" else 1)
+PY
+    then
+      boot_image_file=$candidate
+      break
+    fi
+  done < <(find bazel-bin bazel-out out -type f -name boot.img -print 2>/dev/null | sort)
+fi
+[[ -n "$boot_image_file" ]] || {
+  echo "Kleaf completed but no Android boot.img was found; inspect the bazel output under $source_dir" >&2
+  exit 1
+}
+boot_header_version=$(python3 - "$boot_image_file" <<'PY'
+import struct
+import sys
+from pathlib import Path
+
+with Path(sys.argv[1]).open("rb") as stream:
+    header = stream.read(44)
+if len(header) < 44 or header[:8] != b"ANDROID!":
+    raise SystemExit("boot artifact has no Android boot header")
+print(struct.unpack_from("<I", header, 40)[0])
+PY
+)
+[[ "$boot_header_version" == 3 || "$boot_header_version" == 4 ]] || {
+  echo "unsupported Android boot header version: $boot_header_version" >&2
+  exit 1
+}
+
 output_dir=$project_root/out/$variant
 mkdir -p "$output_dir"
 cp "$image_file" "$output_dir/Image"
 sha256sum "$output_dir/Image" > "$output_dir/Image.sha256"
+cp "$boot_image_file" "$output_dir/boot.img"
+sha256sum "$output_dir/boot.img" > "$output_dir/boot.img.sha256"
 {
   echo "variant=$variant"
   echo "device=yogi"
@@ -56,5 +104,18 @@ sha256sum "$output_dir/Image" > "$output_dir/Image.sha256"
   echo "root=$(cat "$YOGI_WORKDIR/selected-variant")"
   echo "source_dir=$source_dir"
   echo "source_date_epoch=$SOURCE_DATE_EPOCH"
+  echo "boot_source=$boot_image_file"
 } > "$output_dir/build-metadata.txt"
-echo "built $output_dir/Image"
+{
+  echo "variant=$variant"
+  echo "device=yogi"
+  echo "factory_fingerprint=$FACTORY_FINGERPRINT"
+  echo "factory_security_patch=$FACTORY_SECURITY_PATCH"
+  echo "factory_kernel_release=$FACTORY_KERNEL_RELEASE"
+  echo "source_boot_artifact=Google Kleaf gki_aarch64_boot"
+  echo "boot_header_version=$boot_header_version"
+  echo "boot_sha256=$(awk '{print $1}' "$output_dir/boot.img.sha256")"
+  echo "image_sha256=$(awk '{print $1}' "$output_dir/Image.sha256")"
+  echo "boot_size_bytes=$(wc -c < "$output_dir/boot.img" | tr -d ' ')"
+} > "$output_dir/boot-metadata.txt"
+echo "built $output_dir/Image and $output_dir/boot.img"
