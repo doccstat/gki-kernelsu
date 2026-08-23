@@ -20,6 +20,10 @@ fi
   echo "The checked-in Android 13/5.15 build is intended for Linux x86-64." >&2
   exit 2
 }
+command -v pahole >/dev/null 2>&1 || {
+  echo "pahole is required for CONFIG_DEBUG_INFO_BTF; install the dwarves package" >&2
+  exit 2
+}
 
 RTWO_WORKDIR=${RTWO_WORKDIR:-$project_root/.work/rtwo-android13-5.15/$variant}
 export RTWO_WORKDIR
