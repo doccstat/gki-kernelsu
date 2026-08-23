@@ -114,9 +114,9 @@ image still needs the matching stock `vendor_boot`, `vendor_dlkm`,
 `system_dlkm`, and verified-boot setup from the same factory baseline; it is
 not interchangeable with another build.
 
-GitHub Actions can be started manually from
-`.github/workflows/build.yml`, selecting either variant. The workflow pins the
-repo launcher checksum and all source commits; the runner image and GitHub
+GitHub Actions builds both variants on every push and on manual dispatch from
+`.github/workflows/build.yml`. The workflow pins the repo launcher checksum and
+all source commits; the runner image and GitHub
 Actions themselves are still external infrastructure and should be audited
 when long-term bit-for-bit reproducibility matters.
 
