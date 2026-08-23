@@ -26,6 +26,7 @@ jobs:
     timeout-minutes: 180
     env:
       VARIANT: ${{ matrix.variant }}
+      KERNEL_BUILD_JOBS: 2
     steps:
       - name: Checkout workspace
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -38,12 +39,33 @@ jobs:
             lld libelf-dev libssl-dev llvm openssl perl python3 rsync unzip \
             zip zstd
 
+      - name: Free runner disk for LLVM LTO
+        run: |
+          set -euo pipefail
+          for path in \
+            /usr/local/lib/android \
+            /usr/share/dotnet \
+            /usr/local/share/powershell \
+            /usr/share/swift \
+            /opt/ghc \
+            /usr/local/julia \
+            /usr/local/aws-cli \
+            /usr/local/share/chromium \
+            /usr/local/lib/node_modules \
+            /usr/share/miniconda; do
+            if [[ -e "$path" ]]; then
+              sudo rm -rf -- "$path"
+            fi
+          done
+          sudo apt-get clean
+          df -h
+
       - name: Add swap for LLVM LTO
         run: |
           set -euo pipefail
           if ! swapon --show --noheadings | grep -q .; then
             swap_path="$RUNNER_TEMP/gki-kernelsu.swap"
-            sudo fallocate -l 8G "$swap_path"
+            sudo fallocate -l 16G "$swap_path"
             sudo chmod 600 "$swap_path"
             sudo mkswap "$swap_path"
             sudo swapon "$swap_path"
