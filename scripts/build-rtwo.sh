@@ -28,6 +28,11 @@ VARIANT="$variant" "$project_root/scripts/prepare-rtwo-source.sh"
 source_dir=$RTWO_WORKDIR/source
 out_dir=$RTWO_WORKDIR/out
 mkdir -p "$out_dir"
+build_jobs=${KERNEL_BUILD_JOBS:-$(nproc)}
+[[ "$build_jobs" =~ ^[1-9][0-9]*$ ]] || {
+  echo "KERNEL_BUILD_JOBS must be a positive integer" >&2
+  exit 1
+}
 build_epoch=$(git -C "$source_dir" show -s --format=%ct HEAD)
 export SOURCE_DATE_EPOCH=$build_epoch
 export KBUILD_BUILD_TIMESTAMP
@@ -49,7 +54,7 @@ make "${make_args[@]}" olddefconfig
 
 # Build only the common GKI Image. The phone's matching vendor/system_dlkm
 # modules remain untouched and are not replaced by this project.
-make "${make_args[@]}" -j"$(nproc)" Image
+make "${make_args[@]}" -j"$build_jobs" Image
 
 image="$out_dir/arch/arm64/boot/Image"
 [[ -f "$image" ]] || { echo "kernel build produced no Image" >&2; exit 1; }
@@ -70,6 +75,7 @@ sha256sum "$artifact_dir/Image" > "$artifact_dir/Image.sha256"
   echo "modules=$(git -C "$source_dir/../sm8550-modules" rev-parse HEAD)"
   echo "devicetrees=$(git -C "$source_dir/../sm8550-devicetrees" rev-parse HEAD)"
   echo "root=$(grep '^root=' "$RTWO_WORKDIR/source-pins.txt" | cut -d= -f2-)"
+  echo "build_jobs=$build_jobs"
   if [[ "$ENABLE_SUSFS" == 1 ]]; then
     echo "susfs=$(grep '^susfs=' "$RTWO_WORKDIR/source-pins.txt" | cut -d= -f2-)"
   fi
