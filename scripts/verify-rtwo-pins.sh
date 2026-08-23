@@ -8,9 +8,26 @@ source "$project_root/config/rtwo/pins.env"
 is_sha() { [[ "$1" =~ ^[0-9a-f]{40}$ ]]; }
 
 for name in KERNEL_REF MODULES_REF DEVICETREES_REF LINEAGE_DEVICE_REF \
-  LINEAGE_COMMON_REF SUKISU_REF RESUKISU_REF SUSFS_REF; do
+  LINEAGE_COMMON_REF SUKISU_REF RESUKISU_REF SUSFS_REF MKBOOTIMG_REF; do
   is_sha "${!name}" || { echo "invalid $name=${!name}" >&2; exit 1; }
 done
+
+[[ "$LINEAGE_BUILD_DATE" =~ ^[0-9]{8}$ ]] || {
+  echo "invalid LINEAGE_BUILD_DATE=$LINEAGE_BUILD_DATE" >&2
+  exit 1
+}
+[[ "$LINEAGE_BUILD_VERSION" =~ ^[0-9]+\.[0-9]+$ ]] || {
+  echo "invalid LINEAGE_BUILD_VERSION=$LINEAGE_BUILD_VERSION" >&2
+  exit 1
+}
+[[ "$LINEAGE_BOOT_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
+  echo "invalid LINEAGE_BOOT_SHA256" >&2
+  exit 1
+}
+[[ "$LINEAGE_BOOT_URL" == https://mirrorbits.lineageos.org/full/rtwo/*/boot.img ]] || {
+  echo "unexpected LINEAGE_BOOT_URL=$LINEAGE_BOOT_URL" >&2
+  exit 1
+}
 
 [[ "$RTWO_DEVICE" == rtwo ]] || { echo "unexpected RTWO_DEVICE" >&2; exit 1; }
 [[ "$RTWO_PLATFORM" == kalama ]] || { echo "unexpected RTWO_PLATFORM" >&2; exit 1; }

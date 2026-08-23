@@ -50,6 +50,47 @@ if updated == text:
     raise SystemExit("SukiSU Kbuild offline pin did not match expected lines")
 kbuild.write_text(updated)
 PY
+    python3 - "$root_source/kernel/kpm/super_access.c" <<'PY'
+from pathlib import Path
+import sys
+
+source_path = Path(sys.argv[1])
+text = source_path.read_text()
+marker = "/* Android 16 / Linux 6.12 netlink_kernel_cfg compatibility. */"
+if marker not in text:
+    old = """DYNAMIC_STRUCT_BEGIN(netlink_kernel_cfg)
+DEFINE_MEMBER(netlink_kernel_cfg, groups)
+DEFINE_MEMBER(netlink_kernel_cfg, flags)
+DEFINE_MEMBER(netlink_kernel_cfg, input)
+DEFINE_MEMBER(netlink_kernel_cfg, cb_mutex)
+DEFINE_MEMBER(netlink_kernel_cfg, bind)
+DEFINE_MEMBER(netlink_kernel_cfg, unbind)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 1, 0)
+DEFINE_MEMBER(netlink_kernel_cfg, compare)
+#endif
+DYNAMIC_STRUCT_END(netlink_kernel_cfg)"""
+    new = """/* Android 16 / Linux 6.12 netlink_kernel_cfg compatibility. */
+DYNAMIC_STRUCT_BEGIN(netlink_kernel_cfg)
+DEFINE_MEMBER(netlink_kernel_cfg, groups)
+DEFINE_MEMBER(netlink_kernel_cfg, flags)
+DEFINE_MEMBER(netlink_kernel_cfg, input)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 12, 0)
+DEFINE_MEMBER(netlink_kernel_cfg, cb_mutex)
+#endif
+DEFINE_MEMBER(netlink_kernel_cfg, bind)
+DEFINE_MEMBER(netlink_kernel_cfg, unbind)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
+DEFINE_MEMBER(netlink_kernel_cfg, release)
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(6, 1, 0)
+DEFINE_MEMBER(netlink_kernel_cfg, compare)
+#endif
+DYNAMIC_STRUCT_END(netlink_kernel_cfg)"""
+    if old not in text:
+        raise SystemExit(
+            f"unexpected SukiSU netlink_kernel_cfg block in {source_path}"
+        )
+    source_path.write_text(text.replace(old, new, 1))
+PY
     ;;
   resukisu)
     clone_pinned "$RESUKISU_REPO" "$RESUKISU_REF" "$root_dir/ReSukiSU"
@@ -159,5 +200,10 @@ else
 fi
 
 printf '%s\n' "$VARIANT_NAME" > "$work_dir/selected-variant"
-git -C "$common_dir" status --short > "$work_dir/source-modifications.txt"
+{
+  echo "[common]"
+  git -C "$common_dir" status --short
+  echo "[root]"
+  git -C "$root_source" status --short
+} > "$work_dir/source-modifications.txt"
 echo "prepared $VARIANT_NAME in $source_dir"

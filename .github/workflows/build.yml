@@ -41,10 +41,10 @@ jobs:
       - name: Build pinned source
         run: ./scripts/build.sh
 
+      # build.sh emits the raw Image and Google's generated boot.img together.
       - name: Upload kernel image and metadata
         uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
         with:
           name: yogi-${{ env.VARIANT }}-${{ github.sha }}
           path: out/${{ env.VARIANT }}/
           if-no-files-found: error
-

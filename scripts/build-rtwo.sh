@@ -139,3 +139,14 @@ sha256sum "$artifact_dir/Image" > "$artifact_dir/Image.sha256"
   echo "config_sha256=$(sha256sum "$out_dir/.config" | awk '{print $1}')"
 } > "$artifact_dir/build-metadata.txt"
 echo "built $artifact_dir/Image"
+
+package_boot_image=${PACKAGE_BOOT_IMAGE:-0}
+[[ "$package_boot_image" == 0 || "$package_boot_image" == 1 ]] || {
+  echo "PACKAGE_BOOT_IMAGE must be 0 or 1" >&2
+  exit 1
+}
+if [[ "$package_boot_image" == 1 ]]; then
+  VARIANT="$variant" RTWO_IMAGE="$artifact_dir/Image" \
+    RTWO_ARTIFACT_DIR="$artifact_dir" \
+    "$project_root/scripts/package-rtwo-boot.sh"
+fi

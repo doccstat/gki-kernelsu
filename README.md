@@ -5,8 +5,8 @@ source published by Google. It is intentionally a source-build workspace, not
 a prebuilt-kernel mirror.
 
 The build keeps Google's common GKI and Google module source trees together.
-The resulting kernel image is intended to replace only the common GKI image;
-the stock `yogi` vendor modules remain from the matching factory image.
+The resulting build includes Google's generated GKI `boot.img`; the stock
+`yogi` vendor modules remain from the matching factory image.
 
 ## Important feature-matrix decision
 
@@ -42,6 +42,12 @@ snapshot against the factory image's vendor module release before flashing.
 Update the common commit and module commits together when moving to another
 factory image.
 
+For the pinned SukiSU-Ultra KPM commit, the build applies a small local
+compatibility adjustment for Linux 6.12's `netlink_kernel_cfg` layout
+(`cb_mutex` was removed and `release` was added). The patch is applied only to
+the Yogi source preparation step and is recorded in the generated source
+modifications.
+
 ## Motorola Edge+ 2023 (`rtwo`)
 
 The same workspace also builds the LineageOS GKI Image for the connected
@@ -65,11 +71,20 @@ VARIANT=sukisu-kpm ./scripts/build-rtwo.sh
 VARIANT=resukisu-susfs ./scripts/build-rtwo.sh
 ```
 
-The artifacts are raw `Image` files plus hashes and source metadata. They are
-not AnyKernel or boot-image packages. Before flashing, package each image with
-the matching Lineage boot/vendor_boot layout and retain an untouched bootable
-slot for recovery. Do not mix the image with an OTA or factory-image slot whose
-kernel release, vendor modules, or KMI differ from the recorded baseline.
+The GitHub Actions workflow sets `PACKAGE_BOOT_IMAGE=1`, so each successful
+variant now contains both the raw `Image` and a generated `boot.img`. The
+packager downloads the standalone `boot.img` from the pinned LineageOS build,
+verifies its SHA-256, replaces only its common kernel payload, preserves the
+Android boot header, and validates the result after rebuilding it with the
+pinned AOSP `mkbootimg` tools. The stock `vendor_boot`, `vendor_dlkm`, and
+`system_dlkm` images are not changed and are not included in this artifact.
+
+To produce the same packaged image in a Linux build, set
+`PACKAGE_BOOT_IMAGE=1`. The base boot image and tooling pins are in
+[`config/rtwo/pins.env`](config/rtwo/pins.env). Keep the generated image paired
+with the matching W1TR36H.56-13 Lineage/vendor set; do not mix it with an OTA or
+factory-image slot whose kernel release, vendor modules, or KMI differ from the
+recorded baseline. Retain an untouched bootable slot for recovery.
 
 Run the static lock validation before building:
 
@@ -93,9 +108,11 @@ VARIANT=resukisu-susfs ./scripts/build.sh
 
 The first sync needs substantial disk space (plan for at least 100 GB) and a
 large amount of network traffic. The build writes only under `.work/` and
-`out/`, both ignored by Git. The artifact is a raw GKI `Image` plus metadata;
-it is not safe to flash directly without packaging it with the matching stock
-boot/vendor boot layout.
+`out/`, both ignored by Git. The yogi artifact contains Google's generated
+`boot.img` as well as the raw `Image`, hashes, and metadata. The generated boot
+image still needs the matching stock `vendor_boot`, `vendor_dlkm`,
+`system_dlkm`, and verified-boot setup from the same factory baseline; it is
+not interchangeable with another build.
 
 GitHub Actions can be started manually from
 `.github/workflows/build.yml`, selecting either variant. The workflow pins the
@@ -113,9 +130,9 @@ when long-term bit-for-bit reproducibility matters.
    `python3 scripts/lock-manifest.py` and review
    `config/manifest-lock.xml`; do not update only the common kernel while
    retaining unrelated module commits.
-4. Build and boot-test the raw image using the stock image's boot/vendor
-   partitions. Keep the untouched factory image and both A/B slots available
-   for recovery.
+4. Build and boot-test the generated `boot.img` using the stock image's
+   `vendor_boot` and other matching partitions. Keep the untouched factory
+   image and both A/B slots available for recovery.
 
 Disabling OTA does not remove the A/B compatibility problem: an OTA can place
 a new boot/vendor set in the inactive slot. Factory-image updates are a good
