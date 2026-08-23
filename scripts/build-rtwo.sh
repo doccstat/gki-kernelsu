@@ -33,6 +33,35 @@ build_jobs=${KERNEL_BUILD_JOBS:-$(nproc)}
   echo "KERNEL_BUILD_JOBS must be a positive integer" >&2
   exit 1
 }
+lto_jobs=${KERNEL_LTO_JOBS:-$build_jobs}
+[[ "$lto_jobs" =~ ^[1-9][0-9]*$ ]] || {
+  echo "KERNEL_LTO_JOBS must be a positive integer" >&2
+  exit 1
+}
+heartbeat_seconds=${KERNEL_BUILD_HEARTBEAT_SECONDS:-0}
+[[ "$heartbeat_seconds" =~ ^[0-9]+$ ]] || {
+  echo "KERNEL_BUILD_HEARTBEAT_SECONDS must be a non-negative integer" >&2
+  exit 1
+}
+
+# GNU make's -j limit does not constrain the ThinLTO backends spawned by
+# ld.lld. Add the native lld limit to the pinned source Makefile so the link
+# cannot independently consume every runner CPU and its associated memory.
+python3 - "$source_dir/Makefile" "$lto_jobs" <<'PY'
+from pathlib import Path
+import sys
+
+makefile = Path(sys.argv[1])
+jobs = int(sys.argv[2])
+text = makefile.read_text()
+anchor = "KBUILD_LDFLAGS += -mllvm -import-instr-limit=5\n"
+setting = f"KBUILD_LDFLAGS += --thinlto-jobs={jobs}\n"
+if setting not in text:
+    if text.count(anchor) != 1:
+        raise SystemExit(f"cannot find unique ThinLTO linker anchor in {makefile}")
+    makefile.write_text(text.replace(anchor, anchor + setting, 1))
+PY
+
 build_epoch=$(git -C "$source_dir" show -s --format=%ct HEAD)
 export SOURCE_DATE_EPOCH=$build_epoch
 export KBUILD_BUILD_TIMESTAMP
@@ -54,7 +83,28 @@ make "${make_args[@]}" olddefconfig
 
 # Build only the common GKI Image. The phone's matching vendor/system_dlkm
 # modules remain untouched and are not replaced by this project.
+monitor_pid=
+cleanup_monitor() {
+  if [[ -n "$monitor_pid" ]]; then
+    kill "$monitor_pid" 2>/dev/null || true
+    wait "$monitor_pid" 2>/dev/null || true
+  fi
+}
+trap cleanup_monitor EXIT
+if (( heartbeat_seconds > 0 )); then
+  (
+    while sleep "$heartbeat_seconds"; do
+      echo "[build-heartbeat] $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+      free -h
+      swapon --show || true
+      ps -eo pid,ppid,rss,comm --sort=-rss | head -n 8 || true
+    done
+  ) &
+  monitor_pid=$!
+fi
 make "${make_args[@]}" -j"$build_jobs" Image
+cleanup_monitor
+monitor_pid=
 
 image="$out_dir/arch/arm64/boot/Image"
 [[ -f "$image" ]] || { echo "kernel build produced no Image" >&2; exit 1; }
@@ -76,6 +126,8 @@ sha256sum "$artifact_dir/Image" > "$artifact_dir/Image.sha256"
   echo "devicetrees=$(git -C "$source_dir/../sm8550-devicetrees" rev-parse HEAD)"
   echo "root=$(grep '^root=' "$RTWO_WORKDIR/source-pins.txt" | cut -d= -f2-)"
   echo "build_jobs=$build_jobs"
+  echo "lto_jobs=$lto_jobs"
+  echo "heartbeat_seconds=$heartbeat_seconds"
   if [[ "$ENABLE_SUSFS" == 1 ]]; then
     echo "susfs=$(grep '^susfs=' "$RTWO_WORKDIR/source-pins.txt" | cut -d= -f2-)"
   fi
