@@ -163,6 +163,14 @@ set_config KSU_DEBUG n
 set_config KSU_DISABLE_MANAGER n
 set_config KSU_DISABLE_POLICY n
 
+# Yogi keeps Google's stock vendor_dlkm modules.  The custom kernel is signed
+# with a locally generated key, so those stock modules cannot satisfy Google's
+# protected-export policy.  Leave normal module signature verification
+# enabled, but disable export protection for this mixed custom-kernel/stock-
+# module arrangement; otherwise rfkill.ko is rejected before Wi-Fi loads.
+set_config MODULE_SIG_PROTECT_LIST '""'
+unset_config MODULE_SIG_PROTECT
+
 if [[ "$ENABLE_KPM" == 1 ]]; then
   set_config KPM y
   unset_config KSU_SUSFS

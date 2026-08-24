@@ -40,6 +40,11 @@ done < <(find bazel-bin bazel-out out -type f -name Image -print 2>/dev/null | s
   exit 1
 }
 
+final_config_file=$YOGI_WORKDIR/final-kernel.config
+python3 "$project_root/scripts/extract-kernel-config.py" "$image_file" > "$final_config_file"
+VARIANT="$variant" "$project_root/scripts/validate-kernel-config.sh" \
+  "$final_config_file" "$variant"
+
 boot_image_file=
 for candidate in \
   "$source_dir/out/slider/dist/boot.img" \
@@ -90,6 +95,8 @@ output_dir=$project_root/out/$variant
 mkdir -p "$output_dir"
 cp "$image_file" "$output_dir/Image"
 sha256sum "$output_dir/Image" > "$output_dir/Image.sha256"
+cp "$final_config_file" "$output_dir/kernel.config"
+sha256sum "$output_dir/kernel.config" > "$output_dir/kernel.config.sha256"
 cp "$boot_image_file" "$output_dir/boot.img"
 sha256sum "$output_dir/boot.img" > "$output_dir/boot.img.sha256"
 {
@@ -104,6 +111,7 @@ sha256sum "$output_dir/boot.img" > "$output_dir/boot.img.sha256"
   echo "root=$(cat "$YOGI_WORKDIR/selected-variant")"
   echo "source_dir=$source_dir"
   echo "source_date_epoch=$SOURCE_DATE_EPOCH"
+  echo "kernel_config_sha256=$(awk '{print $1}' "$output_dir/kernel.config.sha256")"
   echo "boot_source=$boot_image_file"
 } > "$output_dir/build-metadata.txt"
 {
@@ -116,6 +124,7 @@ sha256sum "$output_dir/boot.img" > "$output_dir/boot.img.sha256"
   echo "boot_header_version=$boot_header_version"
   echo "boot_sha256=$(awk '{print $1}' "$output_dir/boot.img.sha256")"
   echo "image_sha256=$(awk '{print $1}' "$output_dir/Image.sha256")"
+  echo "kernel_config_sha256=$(awk '{print $1}' "$output_dir/kernel.config.sha256")"
   echo "boot_size_bytes=$(wc -c < "$output_dir/boot.img" | tr -d ' ')"
 } > "$output_dir/boot-metadata.txt"
 echo "built $output_dir/Image and $output_dir/boot.img"
