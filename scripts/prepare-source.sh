@@ -177,8 +177,59 @@ if [[ "$ENABLE_SUSFS" == 1 ]]; then
   if [[ ! -e "$marker" ]]; then
     cp "$susfs_dir/kernel_patches/fs/"* "$common_dir/fs/"
     cp "$susfs_dir/kernel_patches/include/linux/"* "$common_dir/include/linux/"
+
+    # The pinned SUSFS patch is correct for Android 16/6.12, but two Google
+    # downstream changes move/rename the exact context of its hunks: exec.c
+    # inserts dma-buf between ksm and uaccess, while task_mmu.c uses
+    # vma_data_pages() in show_smap(). Normalize those contexts only while the
+    # upstream patch is applied, then restore Google's source spelling.
+    python3 - "$common_dir/fs/exec.c" "$common_dir/fs/proc/task_mmu.c" <<'PY'
+from pathlib import Path
+import sys
+
+exec_path = Path(sys.argv[1])
+exec_text = exec_path.read_text()
+dma_include = "#include <linux/dma-buf.h>\n"
+if exec_text.count(dma_include) != 1:
+    raise SystemExit(f"unexpected dma-buf include layout in {exec_path}")
+exec_path.write_text(exec_text.replace(dma_include, "", 1))
+
+task_path = Path(sys.argv[2])
+task_text = task_path.read_text()
+downstream = "\tif (!vma_data_pages(vma))\n"
+if task_text.count(downstream) != 1:
+    raise SystemExit(f"unexpected show_smap layout in {task_path}")
+task_path.write_text(task_text.replace(downstream, "\tif (!vma_pages(vma))\n", 1))
+PY
+
+    susfs_patch_status=0
     patch --batch --forward --silent -d "$common_dir" -p1 < \
-      "$susfs_dir/$SUSFS_PATCH"
+      "$susfs_dir/$SUSFS_PATCH" || susfs_patch_status=$?
+
+    python3 - "$common_dir/fs/exec.c" "$common_dir/fs/proc/task_mmu.c" <<'PY'
+from pathlib import Path
+import sys
+
+exec_path = Path(sys.argv[1])
+exec_text = exec_path.read_text()
+dma_include = "#include <linux/dma-buf.h>\n"
+if dma_include not in exec_text:
+    marker = "#include <linux/uaccess.h>\n"
+    if exec_text.count(marker) != 1:
+        raise SystemExit(f"cannot restore dma-buf include in {exec_path}")
+    exec_text = exec_text.replace(marker, dma_include + "\n" + marker, 1)
+exec_path.write_text(exec_text)
+
+task_path = Path(sys.argv[2])
+task_text = task_path.read_text()
+normalized = "\tif (!vma_pages(vma))\n"
+downstream = "\tif (!vma_data_pages(vma))\n"
+if task_text.count(normalized) != 1:
+    raise SystemExit(f"cannot restore show_smap layout in {task_path}")
+task_path.write_text(task_text.replace(normalized, downstream, 1))
+PY
+
+    (( susfs_patch_status == 0 )) || exit "$susfs_patch_status"
     touch "$marker"
   fi
   set_config KSU_SUSFS y
