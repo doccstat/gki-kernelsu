@@ -109,8 +109,14 @@ VARIANT=resukisu-susfs ./scripts/build.sh
 The first sync needs substantial disk space (plan for at least 100 GB) and a
 large amount of network traffic. The build writes only under `.work/` and
 `out/`, both ignored by Git. The yogi artifact contains Google's generated
-`boot.img` as well as the raw `Image`, hashes, and metadata. The generated boot
-image still needs the matching stock `vendor_boot`, `vendor_dlkm`,
+`boot.img`, the raw `Image`, the embedded final `kernel.config`, hashes, and
+metadata. The build rejects images whose final Kleaf configuration does not
+match the requested root variant or leaves Google's protected-export policy
+enabled. Yogi keeps the factory `vendor_dlkm` modules, which are unsigned by
+the custom kernel's locally generated signing key; clearing only
+`MODULE_SIG_PROTECT_LIST` is therefore intentional and required for those
+stock modules to load. The generated boot image still needs the matching stock
+`vendor_boot`, `vendor_dlkm`,
 `system_dlkm`, and verified-boot setup from the same factory baseline; it is
 not interchangeable with another build.
 
