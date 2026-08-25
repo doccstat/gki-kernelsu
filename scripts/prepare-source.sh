@@ -166,6 +166,35 @@ if marker not in text:
     build.write_text(text)
 PY
 
+# slider_dist reuses the GKI base kernel's Image rather than linking a new
+# device Image.  The base common_kernel() target otherwise embeds Google's
+# protected module-name list before the slider config is applied.  Keep KMI
+# symbol trimming enabled, but do not enable export protection in this custom
+# kernel / factory-module arrangement.
+python3 - "$source_dir/common/BUILD.bazel" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+build = Path(sys.argv[1])
+text = build.read_text()
+pattern = re.compile(
+    r'(common_kernel\(\n\s*name = "kernel_aarch64",.*?'
+    r')\s*protected_module_names_list = ":gki_aarch64_protected_module_names",',
+    re.DOTALL,
+)
+replacement = (
+    r'\1'
+    '\n'
+    '    # Yogi uses factory vendor_dlkm modules; do not protect exports.\n'
+    '    protected_module_names_list = None,'
+)
+updated, count = pattern.subn(replacement, text, count=1)
+if count != 1:
+    raise SystemExit(f"unexpected common kernel_aarch64 target layout in {build}")
+build.write_text(updated)
+PY
+
 python3 - "$source_dir/build/kernel/kleaf/impl/defconfig/notrim_defconfig" <<'PY'
 from pathlib import Path
 import sys
