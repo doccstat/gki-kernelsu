@@ -167,10 +167,10 @@ if marker not in text:
 PY
 
 # slider_dist reuses the GKI base kernel's Image rather than linking a new
-# device Image.  The base common_kernel() target otherwise embeds Google's
-# protected module-name list before the slider config is applied.  Keep KMI
-# symbol trimming enabled, but do not enable export protection in this custom
-# kernel / factory-module arrangement.
+# device Image.  Configure that base target with the same KernelSU variant as
+# the slider modules, while disabling GKI trimming/enforcement for this custom
+# image.  Factory vendor_dlkm modules need the normal exports to remain
+# available, and KPM/SUSFS add symbols outside Google's GKI KMI list.
 python3 - "$source_dir/common/BUILD.bazel" <<'PY'
 from pathlib import Path
 import re
@@ -186,12 +186,43 @@ pattern = re.compile(
 replacement = (
     r'\1'
     '\n'
+    '    post_defconfig_fragments = ["arch/arm64/configs/yogi_root.fragment"],\n'
     '    # Yogi uses factory vendor_dlkm modules; do not protect exports.\n'
     '    protected_module_names_list = None,'
 )
 updated, count = pattern.subn(replacement, text, count=1)
 if count != 1:
     raise SystemExit(f"unexpected common kernel_aarch64 target layout in {build}")
+updated, count = re.subn(
+    r'(common_kernel\(\n\s*name = "kernel_aarch64",.*?'
+    r'\n\s*kmi_enforced = )True,',
+    r'\1False,',
+    updated,
+    count=1,
+    flags=re.DOTALL,
+)
+if count != 1:
+    raise SystemExit(f"cannot disable common kernel KMI enforcement in {build}")
+updated, count = re.subn(
+    r'(common_kernel\(\n\s*name = "kernel_aarch64",.*?'
+    r'\n\s*kmi_symbol_list_strict_mode = )True,',
+    r'\1False,',
+    updated,
+    count=1,
+    flags=re.DOTALL,
+)
+if count != 1:
+    raise SystemExit(f"cannot disable common kernel KMI strict mode in {build}")
+updated, count = re.subn(
+    r'(common_kernel\(\n\s*name = "kernel_aarch64",.*?'
+    r'\n\s*trim_nonlisted_kmi = )True,',
+    r'\1False,',
+    updated,
+    count=1,
+    flags=re.DOTALL,
+)
+if count != 1:
+    raise SystemExit(f"cannot disable common kernel KMI trimming in {build}")
 build.write_text(updated)
 PY
 
@@ -209,16 +240,24 @@ elif text != replacement:
     raise SystemExit(f"unexpected Kleaf no-trim fragment in {fragment}")
 PY
 
+root_fragment=$common_dir/arch/arm64/configs/yogi_root.fragment
+: > "$root_fragment"
+config_fragments=("$fragment" "$root_fragment")
+
 set_config() {
   local key=$1 value=$2
-  sed -i -E "/^(# )?CONFIG_${key}(=.*| is not set)$/d" "$fragment"
-  printf 'CONFIG_%s=%s\n' "$key" "$value" >> "$fragment"
+  for config_fragment in "${config_fragments[@]}"; do
+    sed -i -E "/^(# )?CONFIG_${key}(=.*| is not set)$/d" "$config_fragment"
+    printf 'CONFIG_%s=%s\n' "$key" "$value" >> "$config_fragment"
+  done
 }
 
 unset_config() {
   local key=$1
-  sed -i -E "/^(# )?CONFIG_${key}(=.*| is not set)$/d" "$fragment"
-  printf '# CONFIG_%s is not set\n' "$key" >> "$fragment"
+  for config_fragment in "${config_fragments[@]}"; do
+    sed -i -E "/^(# )?CONFIG_${key}(=.*| is not set)$/d" "$config_fragment"
+    printf '# CONFIG_%s is not set\n' "$key" >> "$config_fragment"
+  done
 }
 
 set_config KSU y
