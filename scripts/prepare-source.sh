@@ -148,8 +148,9 @@ fragment=$source_dir/private/google-modules/soc/gs/arch/arm64/configs/slider_gki
 # The mixed slider target inherits the GKI base kernel's post-defconfig KMI
 # trimming fragment.  Kleaf applies that fragment after slider_gki.fragment and
 # consequently reintroduces CONFIG_MODULE_SIG_PROTECT_LIST, which rejects the
-# stock vendor_dlkm modules signed by Google's key.  Disable KMI trimming on
-# this device target; the stock vendor modules remain the ABI reference.
+# factory vendor_dlkm modules that are not signed with our custom key.  Disable
+# KMI trimming on this device target; the stock vendor modules remain the ABI
+# reference.
 python3 - "$source_dir/private/google-modules/soc/gs/BUILD.bazel" <<'PY'
 from pathlib import Path
 import sys
@@ -198,7 +199,7 @@ set_config KSU_DISABLE_MANAGER n
 set_config KSU_DISABLE_POLICY n
 
 # Yogi keeps Google's stock vendor_dlkm modules.  The custom kernel is signed
-# with a locally generated key, so those stock modules cannot satisfy Google's
+# with a locally generated key, so those stock modules cannot satisfy the
 # protected-export policy.  Leave normal module signature verification
 # enabled, but disable export protection for this mixed custom-kernel/stock-
 # module arrangement; otherwise rfkill.ko is rejected before Wi-Fi loads.

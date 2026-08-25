@@ -112,8 +112,8 @@ large amount of network traffic. The build writes only under `.work/` and
 `boot.img`, the raw `Image`, the embedded final `kernel.config`, hashes, and
 metadata. The build rejects images whose final Kleaf configuration does not
 match the requested root variant or leaves Google's protected-export policy
-enabled. Yogi keeps the factory `vendor_dlkm` modules, which are unsigned by
-the custom kernel's locally generated signing key; clearing only
+enabled. Yogi keeps the factory `vendor_dlkm` modules, which are not signed
+with the custom kernel's locally generated key; clearing only
 `MODULE_SIG_PROTECT_LIST` is therefore intentional and required for those
 stock modules to load. The generated boot image still needs the matching stock
 `vendor_boot`, `vendor_dlkm`,
