@@ -31,10 +31,21 @@ cd "$source_dir"
 ./build_raviole.sh
 
 image_file=
-while IFS= read -r candidate; do
-  image_file=$candidate
-  break
-done < <(find bazel-bin bazel-out out -type f -name Image -print 2>/dev/null | sort)
+for candidate in \
+  "$source_dir/out/slider/dist/Image" \
+  "$source_dir/bazel-bin/private/google-modules/soc/gs/slider_dist/Image" \
+  "$source_dir/bazel-bin/private/google-modules/soc/gs/Image"; do
+  if [[ -f "$candidate" ]]; then
+    image_file=$candidate
+    break
+  fi
+done
+if [[ -z "$image_file" ]]; then
+  while IFS= read -r candidate; do
+    image_file=$candidate
+    break
+  done < <(find bazel-bin bazel-out out -type f -name Image -print 2>/dev/null | sort)
+fi
 [[ -n "$image_file" ]] || {
   echo "Kleaf completed but no Image was found; inspect the bazel output under $source_dir" >&2
   exit 1
