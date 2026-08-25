@@ -165,6 +165,20 @@ if marker not in text:
     build.write_text(text)
 PY
 
+python3 - "$source_dir/build/kernel/kleaf/impl/defconfig/notrim_defconfig" <<'PY'
+from pathlib import Path
+import sys
+
+fragment = Path(sys.argv[1])
+text = fragment.read_text()
+expected = "# CONFIG_MODULE_SIG_PROTECT is not set\n"
+replacement = expected + 'CONFIG_MODULE_SIG_PROTECT_LIST=""\n'
+if text == expected:
+    fragment.write_text(replacement)
+elif text != replacement:
+    raise SystemExit(f"unexpected Kleaf no-trim fragment in {fragment}")
+PY
+
 set_config() {
   local key=$1 value=$2
   sed -i -E "/^(# )?CONFIG_${key}(=.*| is not set)$/d" "$fragment"
