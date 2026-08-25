@@ -145,6 +145,26 @@ PY
 fragment=$source_dir/private/google-modules/soc/gs/arch/arm64/configs/slider_gki.fragment
 [[ -f "$fragment" ]] || { echo "missing GS101 config fragment: $fragment" >&2; exit 1; }
 
+# The mixed slider target inherits the GKI base kernel's post-defconfig KMI
+# trimming fragment.  Kleaf applies that fragment after slider_gki.fragment and
+# consequently reintroduces CONFIG_MODULE_SIG_PROTECT_LIST, which rejects the
+# stock vendor_dlkm modules signed by Google's key.  Disable KMI trimming on
+# this device target; the stock vendor modules remain the ABI reference.
+python3 - "$source_dir/private/google-modules/soc/gs/BUILD.bazel" <<'PY'
+from pathlib import Path
+import sys
+
+build = Path(sys.argv[1])
+text = build.read_text()
+marker = "    # Yogi uses the stock vendor_dlkm modules; do not inherit GKI KMI trimming.\n    trim_nonlisted_kmi = False,\n"
+if marker not in text:
+    needle = "    module_outs = _SLIDER_MODULE_OUTS,\n"
+    if text.count(needle) != 1:
+        raise SystemExit(f"unexpected slider kernel_build() layout in {build}")
+    text = text.replace(needle, marker + needle, 1)
+    build.write_text(text)
+PY
+
 set_config() {
   local key=$1 value=$2
   sed -i -E "/^(# )?CONFIG_${key}(=.*| is not set)$/d" "$fragment"
