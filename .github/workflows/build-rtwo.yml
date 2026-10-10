@@ -1,8 +1,9 @@
-name: Build rtwo GKI KernelSU variants
+name: Build rtwo LineageOS GKI KernelSU variants
 
 on:
   workflow_dispatch:
   push:
+    branches: [main, lineageos]
     paths:
       - 'config/rtwo/**'
       - 'scripts/build-rtwo.sh'
