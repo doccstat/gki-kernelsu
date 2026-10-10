@@ -50,6 +50,15 @@ modifications.
 
 ## Motorola Edge+ 2023 (`rtwo`)
 
+**Scope:** the existing rtwo scripts and artifacts target the Lineage baseline
+below, not stock RETCN `W1TR36H.1-33`. That stock Android 16 firmware contains
+`5.15.189-android13-8-00018-g9c82b71884fd-ab14885418`, corresponding to Android
+common source [9c82b71884fdada085e6a396b7a527e1f1cdf0fc](https://android.googlesource.com/kernel/common/+/9c82b71884fdada085e6a396b7a527e1f1cdf0fc),
+KMI generation 8 and clang r450784e. Supporting it needs a separate stock
+config/module-compatibility review and its RETCN boot-v4 packaging base; do not
+flash this workspace's existing Lineage boot image as a stock RETCN replacement.
+A stock RETCN build target is not implemented yet.
+
 The same workspace also builds the LineageOS GKI Image for the connected
 Motorola Edge+ 2023. Its current baseline is recorded in
 [`config/rtwo/pins.env`](config/rtwo/pins.env): Android 13/5.15 GKI,
