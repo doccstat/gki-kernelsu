@@ -3,11 +3,17 @@
 Pinned source-build wrappers for Pixel `yogi` / GS101, Motorola `rtwo`
 LineageOS, and stock RTWO RETCN. This is not a prebuilt-kernel mirror.
 
-The public `main`, `lineageos`, and `retcn` branches share the workspace source.
-Push builds are routed by branch: `main` retains Pixel and LineageOS builds,
-`lineageos` runs the existing RTWO LineageOS variants, and `retcn` runs the
-stock RETCN workflow. Manual dispatch remains available; choose the matching
-workflow, not just a branch name.
+All build targets live on **`main`**. LineageOS and RETCN are separate build
+paths, not Git branches. Choose the matching workflow on `main`:
+
+| Target | Workflow | Local build entry point |
+| --- | --- | --- |
+| Pixel yogi | Build yogi GKI kernel | `scripts/build.sh` |
+| RTWO LineageOS | Build rtwo LineageOS GKI KernelSU variants | `scripts/build-rtwo.sh` |
+| RTWO stock RETCN | Build rtwo RETCN ReSukiSU SUSFS | `scripts/build-rtwo-retcn.sh` |
+
+Each workflow also responds to relevant `main` pushes; RETCN needs the stock
+boot-image input described below before compilation can run.
 
 The Pixel build keeps Google's common GKI and Google module source trees together.
 The resulting build includes Google's generated GKI `boot.img`; the stock
@@ -55,7 +61,7 @@ modifications.
 
 ## Motorola Edge+ 2023 (`rtwo`)
 
-### LineageOS (`lineageos` branch)
+### LineageOS build target
 
 The existing `build-rtwo.sh` recipe and its pins remain LineageOS-only. Do not
 use its `boot.img` as a stock RETCN replacement.
@@ -102,7 +108,7 @@ Run the static lock validation before building:
 ./scripts/verify-rtwo-pins.sh
 ```
 
-### Stock RETCN (`retcn` branch)
+### Stock RETCN build target
 
 The separate [`config/rtwo-retcn/pins.env`](config/rtwo-retcn/pins.env) targets
 **Android 16 `W1TR36H.1-33`**, whose kernel is still **Android 13 / 5.15**:
@@ -128,10 +134,10 @@ Its SHA-256 must be
 There is no checksum override or Lineage fallback. The stock Image and embedded
 config are independently checked too; no phone connection is needed.
 
-For GitHub Actions, select **Build rtwo RETCN ReSukiSU SUSFS** on `retcn` and
+For GitHub Actions, select **Build rtwo RETCN ReSukiSU SUSFS** on `main` and
 supply `stock_boot_url`, an HTTPS URL serving that exact boot file. Alternatively
-set the repository variable `RTWO_RETCN_BOOT_URL` to enable builds on `retcn`
-pushes. Without the variable, pushes run offline tests only. Firmware is not
+set the repository variable `RTWO_RETCN_BOOT_URL` to enable RETCN builds on
+relevant `main` pushes. Without the variable, pushes run offline tests only. Firmware is not
 redistributed in this repository; use a credential-free download URL because
 workflow inputs/environment may appear in logs.
 

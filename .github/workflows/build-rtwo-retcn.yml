@@ -8,7 +8,7 @@ on:
         type: string
         required: false
   push:
-    branches: [retcn]
+    branches: [main]
     paths:
       - 'config/rtwo-retcn/**'
       - 'scripts/*rtwo-retcn*'
