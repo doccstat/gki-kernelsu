@@ -1,0 +1,93 @@
+name: Build rtwo RETCN ReSukiSU SUSFS
+
+on:
+  workflow_dispatch:
+    inputs:
+      stock_boot_url:
+        description: 'HTTPS URL of stock W1TR36H.1-33 boot.img (or use RTWO_RETCN_BOOT_URL repository variable)'
+        type: string
+        required: false
+  push:
+    branches: [retcn]
+    paths:
+      - 'config/rtwo-retcn/**'
+      - 'scripts/*rtwo-retcn*'
+      - 'scripts/extract-kernel-config.py'
+      - '.github/workflows/build-rtwo-retcn.yml'
+      - 'README.md'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rtwo-retcn-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Validate independent RETCN pins and offline tests
+        run: |
+          python3 scripts/rtwo-retcn.py verify-pins
+          python3 scripts/test-rtwo-retcn.py
+      - name: Explain stock input requirement
+        if: github.event_name == 'push' && vars.RTWO_RETCN_BOOT_URL == ''
+        run: |
+          echo 'Tests only: configure repository variable RTWO_RETCN_BOOT_URL or manually dispatch with stock_boot_url to build. The firmware checksum is fixed in config/rtwo-retcn/pins.env.' >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    needs: validate
+    if: github.event_name == 'workflow_dispatch' || vars.RTWO_RETCN_BOOT_URL != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      RTWO_RETCN_BOOT_URL: ${{ inputs.stock_boot_url || vars.RTWO_RETCN_BOOT_URL }}
+      KERNEL_BUILD_JOBS: 2
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Require explicit firmware input
+        run: |
+          [[ "$RTWO_RETCN_BOOT_URL" == https://* ]] || {
+            echo 'Provide an HTTPS stock_boot_url or RTWO_RETCN_BOOT_URL repository variable.' >&2
+            exit 1
+          }
+      - name: Install build dependencies (compiler comes from the pinned prebuilt tree)
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            bc bison build-essential ca-certificates cpio curl dwarves flex git \
+            libelf-dev libssl-dev libncurses-dev openssl perl python3 rsync
+      - name: Provision space and swap for stock full LTO
+        run: |
+          set -euo pipefail
+          # Disposable GitHub-hosted runner only; never part of the local build script.
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /usr/share/swift \
+            /opt/ghc /usr/local/share/powershell /usr/share/miniconda
+          sudo apt-get clean
+          swap_path="$RUNNER_TEMP/retcn-kernel.swap"
+          sudo fallocate -l 16G "$swap_path"
+          sudo chmod 600 "$swap_path"
+          sudo mkswap "$swap_path"
+          sudo swapon "$swap_path"
+          df -h
+          free -h
+      - name: Build exact RETCN source and package boot image
+        run: ./scripts/build-rtwo-retcn.sh
+      - name: Upload RETCN image and provenance
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        with:
+          name: rtwo-retcn-resukisu-susfs-${{ github.sha }}
+          path: out/rtwo-retcn/resukisu-susfs/
+          if-no-files-found: error
+      - name: Preserve build diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        with:
+          name: rtwo-retcn-failed-build-${{ github.sha }}
+          include-hidden-files: true
+          path: |
+            .work/rtwo-retcn.*/build.log
+            .work/rtwo-retcn.*/compiler.txt
+          if-no-files-found: ignore
