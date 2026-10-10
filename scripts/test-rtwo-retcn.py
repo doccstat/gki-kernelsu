@@ -70,6 +70,16 @@ class RetcnTests(unittest.TestCase):
         self.assertIn("LINEAGE_BOOT_SHA256=19e22bfd", lineage)
         self.assertNotIn("LINEAGE_BOOT_URL", r.PIN_FILE.read_text())
 
+    def test_all_build_targets_live_on_main(self):
+        for filename, entry in (("build.yml", "./scripts/build.sh"),
+                                ("build-rtwo.yml", "./scripts/build-rtwo.sh"),
+                                ("build-rtwo-retcn.yml", "./scripts/build-rtwo-retcn.sh")):
+            with self.subTest(workflow=filename):
+                workflow = (r.ROOT / ".github/workflows" / filename).read_text()
+                self.assertRegex(workflow, r"(?m)^  push:\n    branches: \[main\]$")
+                self.assertIn("  workflow_dispatch:", workflow)
+                self.assertIn("run: " + entry, workflow)
+
     def test_stock_identity(self):
         _, config = r.stock_parts(self.boot, self.pins)
         self.assertEqual(config, STOCK)
