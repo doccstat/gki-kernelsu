@@ -87,4 +87,9 @@ jobs:
           path: |
             .work/rtwo-retcn.*/build.log
             .work/rtwo-retcn.*/compiler.txt
+            .work/rtwo-retcn.*/userspace-toolchain.log
+            .work/rtwo-retcn.*/configure.log
+            .work/rtwo-retcn.*/config.diff
+            .work/rtwo-retcn.*/build/.config
+            .work/rtwo-retcn.*/stock/kernel.config
           if-no-files-found: ignore

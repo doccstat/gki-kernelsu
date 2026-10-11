@@ -38,13 +38,16 @@ def load_pins() -> dict[str, str]:
         words = shlex.split(value)
         require(len(words) == 1 and key not in pins, f"invalid/duplicate pin: {key}")
         pins[key] = words[0]
-    for key in ("KERNEL_REF", "CLANG_REF", "RESUKISU_REF", "SUSFS_REF"):
+    for key in ("KERNEL_REF", "CLANG_REF", "NDK_REF", "RESUKISU_REF", "SUSFS_REF"):
         require(bool(re.fullmatch(r"[0-9a-f]{40}", pins[key])), f"invalid {key}")
     for key in ("STOCK_BOOT_SHA256", "STOCK_IMAGE_SHA256", "STOCK_CONFIG_SHA256"):
         require(bool(re.fullmatch(r"[0-9a-f]{64}", pins[key])), f"invalid {key}")
     require(bool(re.fullmatch(r"https://[^\s]+", pins["STOCK_BOOT_URL"])), "invalid stock boot URL")
     require(pins["ANDROID_KERNEL_FAMILY"] == "android13-5.15", "wrong kernel family")
     require(pins["KMI_GENERATION"] == "8", "wrong KMI generation")
+    require(pins["NDK_VERSION"] == "23.1.7779620", "wrong NDK version")
+    require(pins["NDK_SYSROOT"] == "toolchains/llvm/prebuilt/linux-x86_64/sysroot", "wrong NDK sysroot")
+    require(pins["NDK_TRIPLE"] == "aarch64-linux-android31", "wrong NDK userspace target")
     require(pins["DEVICE"] == "rtwo", "wrong device")
     require(pins["STOCK_KERNEL_RELEASE"].startswith(pins["KERNEL_VERSION"] + "-android13-8-"),
             "inconsistent kernel release")

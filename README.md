@@ -147,8 +147,12 @@ The separate [`config/rtwo-retcn/pins.env`](config/rtwo-retcn/pins.env) targets
 **Android 16 `W1TR36H.1-33`**, whose kernel is still **Android 13 / 5.15**:
 `5.15.189-android13-8-00018-g9c82b71884fd-ab14885418`. It pins the exact public
 Android common commit, clang **r450784e / 14.0.7**, and paired ReSukiSU/SUSFS
-commits. Only **`resukisu-susfs`** is implemented for RETCN; no KPM or extra
-WildKernels performance/baseband patches are added.
+commits. It also pins the NDK **r23b** sysroot for Android API 31 userspace-link
+probes and UAPI header tests; this does not replace the pinned kernel compiler.
+Both dynamic/static probes must pass before configuration, and stock
+`CC_CAN_LINK`, `CC_CAN_LINK_STATIC` and `UAPI_HEADER_TEST` settings remain checked.
+Only **`resukisu-susfs`** is implemented for RETCN; no KPM or extra WildKernels
+performance/baseband patches are added.
 
 Use a case-sensitive Linux x86-64 builder with at least 35 GiB free (100 GiB
 recommended), enough RAM/swap for full LTO, and the dependencies listed in
@@ -186,7 +190,11 @@ Output is under `out/rtwo-retcn/resukisu-susfs/`:
 
 - **`boot-retcn-susfs.img`**: complete boot-v4 image, not an AnyKernel3 ZIP.
 - Raw `Image`, embedded final `kernel.config`, stock config diff,
-  `vmlinux.symvers`, source pins/patch, build log and checksums.
+  `vmlinux.symvers`, source pins/patch, build/configuration logs and checksums.
+
+Failed CI runs also retain userspace-probe logs, stock/generated configs and
+`config.diff`, including failures before Image compilation. These diagnostic
+artifacts are not flashable images.
 
 The build starts with stock IKCONFIG, retaining full LTO, CFI, 4 KiB pages,
 MODVERSIONS, vendor hooks and KABI reserves. It adds built-in root/SUSFS,
