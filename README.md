@@ -193,16 +193,20 @@ Output is under `out/rtwo-retcn/resukisu-susfs/`:
   `vmlinux.symvers`, source pins/patch, build/configuration logs and checksums.
 
 Failed CI runs also retain userspace-probe logs, stock/generated configs and
-`config.diff`, including failures before Image compilation. These diagnostic
-artifacts are not flashable images.
+`config.diff`, including failures before Image compilation. The SCM cache and
+resolved kernel release are also retained. These diagnostic artifacts are not
+flashable images.
 
 The build starts with stock IKCONFIG, retaining full LTO, CFI, 4 KiB pages,
 MODVERSIONS, vendor hooks and KABI reserves. It adds built-in root/SUSFS,
 disables export trimming and GKI protected-export enforcement so custom-key
 policy does not reject stock GKI modules, but does **not** disable CRC checks,
 enable forced module loading, or force signature enforcement. Unexpected
-stock config drift fails the build. The stock kernel release is retained for
-module-directory compatibility; this is a modified kernel, not an OEM build.
+stock config drift fails the build. Stock `LOCALVERSION_AUTO=y` and its dependent
+`MODULE_SCMVERSION=y` stay enabled. The upstream `.scmversion` cache pins the
+stock release suffix, and `make kernelrelease` must match before compilation.
+The fixed release preserves module-directory compatibility; this is a modified
+kernel, not an OEM build or proof of ABI compatibility.
 
 The packager preserves the stock header except for the replacement kernel's
 size and recreates zero partition padding. It deliberately **removes stale OEM

@@ -25,6 +25,7 @@ CONFIG_LTO_CLANG_FULL=y
 CONFIG_CFI_CLANG=y
 CONFIG_MODVERSIONS=y
 CONFIG_MODULE_SIG=y
+CONFIG_MODULE_SCMVERSION=y
 CONFIG_MODULE_SIG_PROTECT=y
 CONFIG_TRIM_UNUSED_KSYMS=y
 CONFIG_UNUSED_KSYMS_WHITELIST="/stock/build/path"
@@ -163,6 +164,61 @@ class RetcnTests(unittest.TestCase):
     def test_config_roundtrip(self):
         self.assertEqual(r.image_config(self.image), self.config)
         r.validate_config(self.config, STOCK, self.pins)
+
+    def test_stock_versioning_settings_are_preserved(self):
+        values = r.config_values(self.config)
+        self.assertEqual(values["CONFIG_LOCALVERSION"], '""')
+        self.assertEqual(values["CONFIG_LOCALVERSION_AUTO"], "y")
+        self.assertEqual(values["CONFIG_MODULE_SCMVERSION"], "y")
+        for key in ("CONFIG_LOCALVERSION_AUTO", "CONFIG_MODULE_SCMVERSION"):
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, key):
+                r.validate_config(self.config.replace((key + "=y\n").encode(), b""), STOCK, self.pins)
+
+    def test_reports_all_unreviewed_drift_in_stable_order(self):
+        config = self.config.replace(b"CONFIG_VENDOR_SENTINEL=m", b"CONFIG_VENDOR_SENTINEL=y")
+        config = config.replace(b"CONFIG_CC_CAN_LINK=y", b"# CONFIG_CC_CAN_LINK is not set")
+        with self.assertRaisesRegex(ValueError, "unreviewed stock config drift: CONFIG_CC_CAN_LINK, CONFIG_VENDOR_SENTINEL$"):
+            r.validate_config(config, STOCK, self.pins)
+
+    def test_upstream_setlocalversion_uses_cache_without_git_or_duplicate_suffix(self):
+        script = r.ROOT / "config/rtwo-retcn/tests/setlocalversion"
+        self.assertEqual(r.sha256(script.read_bytes()),
+                         "3cdcdf4cb607cacf4ec5a5834d85a16d8cbae48d82f13d7fa7e20ab59469581a")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source, build, tools = root / "common", root / "build", root / "bin"
+            source.mkdir(); tools.mkdir()
+            (build / "include/config").mkdir(parents=True)
+            values = r.config_values(self.config)
+            (build / "include/config/auto.conf").write_text("".join(
+                f"{key}={values[key]}\n" for key in ("CONFIG_LOCALVERSION", "CONFIG_LOCALVERSION_AUTO")))
+            log = root / "git.log"
+            git = tools / "git"
+            git.write_text('#!/bin/sh\necho "$*" >> "$TEST_GIT_LOG"\n'
+                           'case "$*" in\n'
+                           '  "rev-parse --verify HEAD") echo ' + self.pins["KERNEL_REF"] + ';;\n'
+                           '  "--no-optional-locks status -uno --porcelain") echo " M fs/susfs.c";;\n'
+                           '  *) exit 1;;\nesac\n')
+            git.chmod(0o755)
+            env = {**os.environ, "PATH": str(tools) + os.pathsep + os.environ["PATH"],
+                   "LOCALVERSION": "", "BUILD_NUMBER": "", "TEST_GIT_LOG": str(log)}
+            suffix = self.pins["STOCK_KERNEL_RELEASE"].removeprefix(self.pins["KERNEL_VERSION"])
+            (source / ".scmversion").write_text(suffix + "\n")
+            for option in ([], ["--save-tag"]):
+                with self.subTest(option=option):
+                    result = subprocess.run(["sh", str(script), *option, str(source), "android13-5.15", "8"],
+                                            cwd=build, env=env, text=True, capture_output=True, timeout=10)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(self.pins["KERNEL_VERSION"] + result.stdout.strip(),
+                                     self.pins["STOCK_KERNEL_RELEASE"])
+                    self.assertFalse(log.exists(), "SCM cache must bypass Git's dirty/shallow-tree suffix")
+            (source / ".scmversion").unlink()
+            result = subprocess.run(["sh", str(script), str(source), "android13-5.15", "8"],
+                                    cwd=build, env=env, text=True, capture_output=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("-dirty", result.stdout)
+            self.assertNotEqual(self.pins["KERNEL_VERSION"] + result.stdout.strip(), self.pins["STOCK_KERNEL_RELEASE"])
+            self.assertTrue(log.exists())
 
     def test_stock_config_itself_is_not_rooted(self):
         with self.assertRaises(ValueError):
@@ -364,6 +420,7 @@ class UserspaceBuildTests(unittest.TestCase):
         self.env.update(PATH=str(self.tools) + os.pathsep + os.environ["PATH"],
                         RTWO_RETCN_BOOT_IMAGE=str(self.stock), TEST_STOCK_CONFIG=str(self.stock),
                         TEST_LOG=str(self.log), TEST_SEED=str(self.seed),
+                        TEST_KERNEL_VERSION=self.pins["KERNEL_VERSION"],
                         USERCFLAGS="untrusted-inherited-flags", USERLDFLAGS="untrusted-inherited-flags")
         self.attempt = 0
 
@@ -443,6 +500,10 @@ if 'olddefconfig' in args:
         config = Path(next(a.split('=', 1)[1] for a in args if a.startswith('KCONFIG_CONFIG=')))
         config.write_text(config.read_text().replace('CONFIG_CC_CAN_LINK=y', '# CONFIG_CC_CAN_LINK is not set'))
     print('mock olddefconfig complete')
+elif 'kernelrelease' in args:
+    source = Path(args[args.index('-C') + 1])
+    release = os.environ['TEST_KERNEL_VERSION'] + (source / '.scmversion').read_text().strip()
+    print(os.environ.get('TEST_KERNEL_RELEASE', release))
 else:
     assert 'Image' in args
     sys.exit(77)  # Stop at Image compilation; never synthesize a successful build.
@@ -482,9 +543,14 @@ else:
         self.assertIn("-static", probes[1])
         self.assertIn("static userspace link probe passed", result.stdout)
         make = self.calls("make")
-        self.assertEqual(len(make), 2)
+        self.assertEqual(len(make), 3)
         self.assertIn("olddefconfig", make[0])
-        self.assertIn("Image", make[1])
+        self.assertIn("kernelrelease", make[1])
+        self.assertIn("Image", make[2])
+        self.assertEqual((self.work / "kernel-release.txt").read_text().strip(), self.pins["STOCK_KERNEL_RELEASE"])
+        self.assertEqual((self.work / "common/.scmversion").read_text().strip(),
+                         self.pins["STOCK_KERNEL_RELEASE"].removeprefix(self.pins["KERNEL_VERSION"]))
+        self.assertIn("CONFIG_MODULE_SCMVERSION=y", (self.work / "build/.config").read_text())
         for args in make:
             self.assertIn("USERCFLAGS=--target=aarch64-linux-android31 --sysroot=" +
                           str(self.work / "ndk" / self.pins["NDK_SYSROOT"]) + " -Wno-unused-function", args)
@@ -516,13 +582,30 @@ else:
         self.assertEqual((self.work / "stock/kernel.config").read_bytes(), STOCK)
         self.assertFalse((self.project / "out").exists())
 
+    def test_wrong_kernelrelease_stops_before_image_compilation(self):
+        result = self.run_build(TEST_KERNEL_RELEASE="5.15.189-wrong-or-duplicate-suffix")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("kernel release mismatch", result.stderr)
+        self.assertEqual(len(self.calls("make")), 2)
+        self.assertFalse((self.work / "build.log").exists())
+        self.assertEqual((self.work / "kernel-release.txt").read_text().strip(),
+                         "5.15.189-wrong-or-duplicate-suffix")
+
+    def test_existing_scm_cache_is_not_overwritten(self):
+        (self.seed / "common/.scmversion").write_text("unexpected existing version\n")
+        result = self.run_build()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("unexpected source .scmversion", result.stderr)
+        self.assertEqual(self.calls("make"), [])
+        self.assertEqual((self.work / "common/.scmversion").read_text(), "unexpected existing version\n")
+
     def test_ci_retains_diagnostics_even_before_image_build(self):
         workflow = (r.ROOT / ".github/workflows/build-rtwo-retcn.yml").read_text()
         failure = workflow.split("- name: Preserve build diagnostics on failure", 1)[1]
         self.assertIn("if: failure()", failure)
         self.assertIn("include-hidden-files: true", failure)
         for name in ("build.log", "compiler.txt", "userspace-toolchain.log", "configure.log",
-                     "config.diff", "build/.config", "stock/kernel.config"):
+                     "config.diff", "kernel-release.txt", "common/.scmversion", "build/.config", "stock/kernel.config"):
             self.assertIn(".work/rtwo-retcn.*/" + name, failure)
         self.assertNotIn("stock-boot.img", failure)
 

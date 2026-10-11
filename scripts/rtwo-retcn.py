@@ -117,12 +117,12 @@ def config_values(config: bytes) -> dict[str, str]:
     return result
 
 
-def changes(pins: dict[str, str]) -> dict[str, str]:
-    suffix = pins["STOCK_KERNEL_RELEASE"].removeprefix(pins["KERNEL_VERSION"])
+def changes() -> dict[str, str]:
     return {
-        # Retain module directory/release expectations, not an assertion of OEM authenticity.
-        "CONFIG_LOCALVERSION": json.dumps(suffix),
-        "CONFIG_LOCALVERSION_AUTO": "n",
+        # Keep stock AUTO so its dependent MODULE_SCMVERSION remains enabled.
+        # The build pins the release suffix in the supported .scmversion cache.
+        "CONFIG_LOCALVERSION": '""',
+        "CONFIG_LOCALVERSION_AUTO": "y",
         # Stock GKI modules are signed with another key. Preserve verification and CRCs,
         # but do not enforce protected exports or trim exports needed by root/stock modules.
         "CONFIG_MODULE_SIG_PROTECT": "n",
@@ -147,7 +147,7 @@ def changes(pins: dict[str, str]) -> dict[str, str]:
 def configure(stock: bytes, pins: dict[str, str]) -> bytes:
     require(sha256(stock) == pins["STOCK_CONFIG_SHA256"], "stock config checksum mismatch")
     values = config_values(stock)
-    values.update(changes(pins))
+    values.update(changes())
     return ("# RETCN stock IKCONFIG with reviewed built-in ReSukiSU/SUSFS changes\n" +
             "\n".join(f"# {key} is not set" if value == "n" else f"{key}={value}"
                       for key, value in values.items()) + "\n").encode()
@@ -156,7 +156,7 @@ def configure(stock: bytes, pins: dict[str, str]) -> bytes:
 def validate_config(config: bytes, stock: bytes, pins: dict[str, str]) -> None:
     require(sha256(stock) == pins["STOCK_CONFIG_SHA256"], "stock config checksum mismatch")
     actual, baseline = config_values(config), config_values(stock)
-    expected = changes(pins)
+    expected = changes()
     for key, value in expected.items():
         if key == "CONFIG_UNUSED_KSYMS_WHITELIST":  # Disappears when trimming is disabled.
             require(actual.get(key, '""') == '""', "stale symbol whitelist")
@@ -164,7 +164,7 @@ def validate_config(config: bytes, stock: bytes, pins: dict[str, str]) -> None:
             require(actual.get(key, "n") == value, f"unexpected {key}; expected {value}")
     for key in (
         "CONFIG_ARM64_4K_PAGES", "CONFIG_LTO_CLANG_FULL", "CONFIG_CFI_CLANG",
-        "CONFIG_MODVERSIONS", "CONFIG_MODULE_SIG", "CONFIG_ANDROID_VENDOR_HOOKS",
+        "CONFIG_MODVERSIONS", "CONFIG_MODULE_SIG", "CONFIG_MODULE_SCMVERSION", "CONFIG_ANDROID_VENDOR_HOOKS",
         "CONFIG_ANDROID_KABI_RESERVE", "CONFIG_IKCONFIG", "CONFIG_KALLSYMS_ALL",
     ):
         require(actual.get(key) == "y", f"required stock setting missing: {key}")
@@ -172,10 +172,10 @@ def validate_config(config: bytes, stock: bytes, pins: dict[str, str]) -> None:
         require(actual.get(key, "n") == "n", f"unsafe setting: {key}")
     # Fail closed on unexpected stock drift, including compiler/LTO/module settings.
     # Host pahole version/capability probes may differ; retain the complete diff in artifacts.
-    for key in baseline.keys() | actual.keys():
-        if key in expected or key.startswith(("CONFIG_KSU_", "CONFIG_PAHOLE_")):
-            continue
-        require(actual.get(key, "n") == baseline.get(key, "n"), f"unreviewed stock config drift: {key}")
+    drift = [key for key in sorted(baseline.keys() | actual.keys())
+             if key not in expected and not key.startswith(("CONFIG_KSU_", "CONFIG_PAHOLE_"))
+             and actual.get(key, "n") != baseline.get(key, "n")]
+    require(not drift, "unreviewed stock config drift: " + ", ".join(drift))
 
 
 def repack(boot: bytes, image: bytes) -> bytes:
