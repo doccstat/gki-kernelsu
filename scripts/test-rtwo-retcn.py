@@ -2,11 +2,13 @@
 """Offline tests; RETCN_TEST_BOOT optionally enables tests using the real stock file."""
 import gzip
 import importlib.util
+import json
 import os
 from pathlib import Path
 import shutil
 import struct
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -31,6 +33,10 @@ CONFIG_ANDROID_KABI_RESERVE=y
 CONFIG_IKCONFIG=y
 CONFIG_KALLSYMS_ALL=y
 CONFIG_CLANG_VERSION=140007
+CONFIG_CC_CAN_LINK=y
+CONFIG_CC_CAN_LINK_STATIC=y
+CONFIG_UAPI_HEADER_TEST=y
+CONFIG_HEADERS_INSTALL=y
 CONFIG_PAHOLE_VERSION=123
 CONFIG_VENDOR_SENTINEL=m
 """
@@ -84,6 +90,19 @@ class RetcnTests(unittest.TestCase):
                     pins_file.write_text(original.replace("STOCK_BOOT_URL=" + url,
                                                           "STOCK_BOOT_URL=" + repr(invalid)))
                     with patch.object(r, "PIN_FILE", pins_file), self.assertRaisesRegex(ValueError, "stock boot URL"):
+                        r.load_pins()
+
+    def test_ndk_pins_reject_wrong_sysroot_or_target(self):
+        original = r.PIN_FILE.read_text()
+        pins = r.load_pins()
+        with tempfile.TemporaryDirectory() as tmp:
+            pin_file = Path(tmp) / "pins.env"
+            for key, value in (("NDK_REF", "not-a-commit"), ("NDK_VERSION", "25.0"),
+                               ("NDK_SYSROOT", "toolchains/wrong/sysroot"),
+                               ("NDK_TRIPLE", "x86_64-linux-android31")):
+                with self.subTest(pin=key):
+                    pin_file.write_text(original.replace(key + "=" + pins[key], key + "=" + value))
+                    with patch.object(r, "PIN_FILE", pin_file), self.assertRaisesRegex(ValueError, "NDK"):
                         r.load_pins()
 
     def test_ci_uses_default_mirror_without_a_repository_variable(self):
@@ -163,7 +182,9 @@ class RetcnTests(unittest.TestCase):
 
     def test_reject_stock_config_drift(self):
         for key, before, after in (("MODVERSIONS", "y", "n"), ("VENDOR_SENTINEL", "m", "y"),
-                                   ("CLANG_VERSION", "140007", "180000")):
+                                   ("CLANG_VERSION", "140007", "180000"),
+                                   ("CC_CAN_LINK", "y", "n"), ("CC_CAN_LINK_STATIC", "y", "n"),
+                                   ("UAPI_HEADER_TEST", "y", "n"), ("HEADERS_INSTALL", "y", "n")):
             with self.subTest(key=key), self.assertRaises(ValueError):
                 r.validate_config(self.config.replace(f"CONFIG_{key}={before}".encode(),
                                                      f"CONFIG_{key}={after}".encode()), STOCK, self.pins)
@@ -317,6 +338,193 @@ exit 98
         # A stock roundtrip is only a structural test, not a rooted build artifact.
         with self.assertRaises(ValueError):
             r.validate_config(r.image_config(kernel), stock, pins)
+
+
+class UserspaceBuildTests(unittest.TestCase):
+    """Run the actual build shell with mocked downloads/compiler/make, not a kernel build."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.project = self.root / "project"
+        (self.project / "scripts").mkdir(parents=True)
+        shutil.copytree(r.ROOT / "config/rtwo-retcn", self.project / "config/rtwo-retcn")
+        shutil.copy2(r.ROOT / "scripts/build-rtwo-retcn.sh", self.project / "scripts/build-rtwo-retcn.sh")
+        shutil.copy2(r.ROOT / "scripts/rtwo-retcn.py", self.project / "scripts/retcnlib.py")
+        self.tools, self.seed = self.root / "bin", self.root / "seed"
+        self.tools.mkdir()
+        self.seed.mkdir()
+        self.log = self.root / "calls.jsonl"
+        self.stock = self.root / "stock.config"
+        self.stock.write_bytes(STOCK)
+        self.pins = r.load_pins()
+        self.env = {key: value for key, value in os.environ.items()
+                    if not key.startswith(("RTWO_", "KERNEL_BUILD_")) and key not in ("VARIANT", "USERCFLAGS", "USERLDFLAGS")}
+        self.env.update(PATH=str(self.tools) + os.pathsep + os.environ["PATH"],
+                        RTWO_RETCN_BOOT_IMAGE=str(self.stock), TEST_STOCK_CONFIG=str(self.stock),
+                        TEST_LOG=str(self.log), TEST_SEED=str(self.seed),
+                        USERCFLAGS="untrusted-inherited-flags", USERLDFLAGS="untrusted-inherited-flags")
+        self.attempt = 0
+
+        def seed_file(path, text):
+            output = self.seed / path
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(text)
+
+        seed_file("common/build.config.common", "KMI_GENERATION=8\n")
+        seed_file("common/build.config.constants", "CLANG_VERSION=r450784e\n")
+        seed_file("common/build.config.aarch64", "NDK_TRIPLE=aarch64-linux-android31\n")
+        seed_file("common/drivers/Kconfig", 'menu "drivers"\nendmenu\n')
+        seed_file("common/drivers/Makefile", "# mock\n")
+        for path in ("common/fs", "common/include/linux", "ReSukiSU/kernel"):
+            (self.seed / path).mkdir(parents=True)
+        seed_file("susfs4ksu/" + self.pins["SUSFS_PATCH"], "# mock patch\n")
+        seed_file("susfs4ksu/kernel_patches/fs/susfs.c", "/* mock */\n")
+        seed_file("susfs4ksu/kernel_patches/include/linux/susfs.h", "/* mock */\n")
+        seed_file("ndk/source.properties", "Pkg.Revision = 23.1.7779620\n")
+        seed_file("ndk/" + self.pins["NDK_SYSROOT"] + "/usr/include/stdio.h", "/* mock */\n")
+        # Same invocation shape as the pinned scripts/cc-can-link.sh; mocked
+        # clang verifies that the actual build shell supplies the missing flags.
+        seed_file("common/scripts/cc-can-link.sh", '#!/bin/sh\nprintf "int main(void) {}\\n" | "$@" -x c - -o /dev/null >/dev/null 2>&1\n')
+        (self.seed / "common/scripts/cc-can-link.sh").chmod(0o755)
+        self.tool(self.seed / "clang" / self.pins["CLANG_DIR"] / "bin/clang", "clang", '''
+if args == ['--version']:
+    print('Android (8508608, based on r450784e) clang version 14.0.7')
+    sys.exit(0)
+sys.stdin.read()
+assert '--target=aarch64-linux-android31' in args
+assert '-fuse-ld=lld' in args and '--rtlib=compiler-rt' in args
+sysroot = Path(next(arg.split('=', 1)[1] for arg in args if arg.startswith('--sysroot=')))
+assert (sysroot / 'usr/include/stdio.h').is_file()
+mode = 'static' if '-static' in args else 'dynamic'
+sys.exit(1 if os.environ.get('TEST_FAIL_PROBE') == mode else 0)
+''')
+        self.tool(self.tools / "git", "git", '''
+if args[0] == 'init':
+    Path(args[-1]).mkdir(parents=True)
+else:
+    dest = Path(args[1])
+    if 'fetch' in args:
+        (dest / 'head').write_text(args[-1])
+    elif 'checkout' in args:
+        import shutil
+        shutil.copytree(Path(os.environ['TEST_SEED']) / dest.name, dest, dirs_exist_ok=True)
+    elif 'rev-parse' in args:
+        print((dest / 'head').read_text())
+    elif 'show' in args:
+        print('1770997568')
+''')
+        # Bypass binary firmware extraction only; configure/validation still use
+        # the production Python code, with the synthetic stock-config checksum.
+        self.tool(self.project / "scripts/rtwo-retcn.py", "helper", '''
+import retcnlib as r
+pins = r.load_pins()
+stock = Path(os.environ['TEST_STOCK_CONFIG']).read_bytes()
+pins['STOCK_CONFIG_SHA256'] = r.sha256(stock)
+if args[0] == 'extract':
+    out = Path(args[2]); out.mkdir(); (out / 'kernel.config').write_bytes(stock)
+elif args[0] == 'configure':
+    Path(args[2]).write_bytes(r.configure(stock, pins))
+elif args[0] == 'validate-config':
+    try:
+        r.validate_config(Path(args[2]).read_bytes(), stock, pins)
+    except ValueError as error:
+        sys.exit(str(error))
+else:
+    assert args[0] == 'verify-pins'
+''')
+        self.tool(self.tools / "make", "make", '''
+assert 'USERCFLAGS=' + os.environ['USERCFLAGS'] in args
+assert 'USERLDFLAGS=' + os.environ['USERLDFLAGS'] in args
+assert 'untrusted-inherited-flags' not in ' '.join(args)
+if 'olddefconfig' in args:
+    if os.environ.get('TEST_CONFIG_DRIFT'):
+        config = Path(next(a.split('=', 1)[1] for a in args if a.startswith('KCONFIG_CONFIG=')))
+        config.write_text(config.read_text().replace('CONFIG_CC_CAN_LINK=y', '# CONFIG_CC_CAN_LINK is not set'))
+    print('mock olddefconfig complete')
+else:
+    assert 'Image' in args
+    sys.exit(77)  # Stop at Image compilation; never synthesize a successful build.
+''')
+        self.tool(self.tools / "uname", None, "print('Linux' if args == ['-s'] else 'x86_64')\n")
+        self.tool(self.tools / "df", None, "print('Filesystem 1024-blocks Used Available Capacity Mounted\\nmock 100000000 0 100000000 0% /')\n")
+        for name in ("curl", "pahole", "bc", "bison", "flex", "cpio", "openssl"):
+            self.tool(self.tools / name, name, "sys.exit('unexpected external command')\n")
+
+    def tool(self, path, label, body):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        prefix = f"#!{sys.executable}\nimport json, os, sys\nfrom pathlib import Path\nargs = sys.argv[1:]\n"
+        if label:
+            prefix += ("with open(os.environ['TEST_LOG'], 'a') as log:\n"
+                       f"    log.write(json.dumps([{label!r}, *args]) + '\\n')\n")
+        path.write_text(prefix + body)
+        path.chmod(0o755)
+
+    def run_build(self, **settings):
+        self.attempt += 1
+        self.work = self.root / f"work-{self.attempt}"
+        self.log.unlink(missing_ok=True)
+        return subprocess.run(["bash", str(self.project / "scripts/build-rtwo-retcn.sh")],
+                              env={**self.env, "RTWO_RETCN_WORKDIR": str(self.work), **settings},
+                              capture_output=True, text=True, timeout=20)
+
+    def calls(self, label):
+        return [call[1:] for line in self.log.read_text().splitlines()
+                if (call := json.loads(line))[0] == label]
+
+    def test_pinned_userspace_flags_reach_probes_and_both_make_stages(self):
+        result = self.run_build()
+        self.assertEqual(result.returncode, 77, result.stdout + result.stderr)
+        probes = [call for call in self.calls("clang") if call != ["--version"]]
+        self.assertEqual(len(probes), 2)
+        self.assertNotIn("-static", probes[0])
+        self.assertIn("-static", probes[1])
+        self.assertIn("static userspace link probe passed", result.stdout)
+        make = self.calls("make")
+        self.assertEqual(len(make), 2)
+        self.assertIn("olddefconfig", make[0])
+        self.assertIn("Image", make[1])
+        for args in make:
+            self.assertIn("USERCFLAGS=--target=aarch64-linux-android31 --sysroot=" +
+                          str(self.work / "ndk" / self.pins["NDK_SYSROOT"]) + " -Wno-unused-function", args)
+            self.assertIn("USERLDFLAGS=-fuse-ld=lld --rtlib=compiler-rt --target=aarch64-linux-android31", args)
+        ndk = [args for args in self.calls("git") if str(self.work / "ndk") in args]
+        self.assertTrue(any(args[-1] == self.pins["NDK_REF"] and "fetch" in args for args in ndk))
+        sparse = next(args for args in ndk if "sparse-checkout" in args and "set" in args)
+        self.assertEqual(sparse[-2:], [self.pins["NDK_SYSROOT"] + suffix
+                                      for suffix in ("/usr/include", "/usr/lib/aarch64-linux-android")])
+
+    def test_failed_link_probe_stops_before_configuration(self):
+        for mode in ("dynamic", "static"):
+            with self.subTest(mode=mode):
+                result = self.run_build(TEST_FAIL_PROBE=mode)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn(mode + " userspace link probe failed", result.stdout)
+                self.assertEqual(self.calls("make"), [])
+                self.assertFalse((self.work / "build/.config").exists())
+                self.assertIn("userspace link probe failed", (self.work / "userspace-toolchain.log").read_text())
+
+    def test_config_drift_still_fails_and_preserves_diagnostics(self):
+        result = self.run_build(TEST_CONFIG_DRIFT="1")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("unreviewed stock config drift: CONFIG_CC_CAN_LINK", result.stderr)
+        self.assertEqual(len(self.calls("make")), 1)
+        self.assertIn("-CONFIG_CC_CAN_LINK=y", (self.work / "config.diff").read_text())
+        self.assertIn("mock olddefconfig", (self.work / "configure.log").read_text())
+        self.assertTrue((self.work / "build/.config").is_file())
+        self.assertEqual((self.work / "stock/kernel.config").read_bytes(), STOCK)
+        self.assertFalse((self.project / "out").exists())
+
+    def test_ci_retains_diagnostics_even_before_image_build(self):
+        workflow = (r.ROOT / ".github/workflows/build-rtwo-retcn.yml").read_text()
+        failure = workflow.split("- name: Preserve build diagnostics on failure", 1)[1]
+        self.assertIn("if: failure()", failure)
+        self.assertIn("include-hidden-files: true", failure)
+        for name in ("build.log", "compiler.txt", "userspace-toolchain.log", "configure.log",
+                     "config.diff", "build/.config", "stock/kernel.config"):
+            self.assertIn(".work/rtwo-retcn.*/" + name, failure)
+        self.assertNotIn("stock-boot.img", failure)
 
 
 if __name__ == "__main__":

@@ -13,7 +13,7 @@ python3 "$helper" verify-pins
 [[ $(uname -s) == Linux && $(uname -m) == x86_64 ]] || {
   echo "RETCN requires Linux x86-64 (pinned clang-r450784e); use GitHub Actions" >&2; exit 2;
 }
-for tool in git make curl pahole bc bison flex cpio openssl; do
+for tool in git make curl pahole bc bison flex cpio openssl diff; do
   command -v "$tool" >/dev/null || { echo "missing build dependency: $tool" >&2; exit 2; }
 done
 jobs=${KERNEL_BUILD_JOBS:-2}
@@ -55,15 +55,15 @@ fi
 python3 "$helper" extract "$base_boot" "$work/stock"
 
 clone_pin() {
-  local url=$1 ref=$2 dest=$3 mode=${4:-shallow} sparse=${5:-}
+  local url=$1 ref=$2 dest=$3 mode=${4:-shallow}
   git init --quiet "$dest"
   git -C "$dest" remote add origin "$url"
   local args=(--no-tags --filter=blob:none)
   [[ $mode == full ]] || args+=(--depth=1)
   git -C "$dest" fetch "${args[@]}" origin "$ref"
-  if [[ -n $sparse ]]; then
+  if (( $# > 4 )); then
     git -C "$dest" sparse-checkout init --cone
-    git -C "$dest" sparse-checkout set "$sparse"
+    git -C "$dest" sparse-checkout set "${@:5}"
   fi
   git -C "$dest" -c advice.detachedHead=false checkout --detach "$ref"
   [[ $(git -C "$dest" rev-parse HEAD) == "$ref" ]]
@@ -77,12 +77,37 @@ clone_pin "$KERNEL_REPO" "$KERNEL_REF" "$source_dir"
 clone_pin "$RESUKISU_REPO" "$RESUKISU_REF" "$root_dir" full
 clone_pin "$SUSFS_REPO" "$SUSFS_REF" "$susfs_dir"
 clone_pin "$CLANG_REPO" "$CLANG_REF" "$work/clang" shallow "$CLANG_DIR"
+clone_pin "$NDK_REPO" "$NDK_REF" "$work/ndk" shallow \
+  "$NDK_SYSROOT/usr/include" "$NDK_SYSROOT/usr/lib/aarch64-linux-android"
 export PATH="$work/clang/$CLANG_DIR/bin:$PATH"
 clang --version | tee "$work/compiler.txt"
 grep -Fq "clang version $CLANG_VERSION" "$work/compiler.txt"
 grep -Fq "based on ${CLANG_DIR#clang-}" "$work/compiler.txt"
 grep -qx 'KMI_GENERATION=8' "$source_dir/build.config.common"
 grep -qx 'CLANG_VERSION=r450784e' "$source_dir/build.config.constants"
+grep -qx "NDK_TRIPLE=$NDK_TRIPLE" "$source_dir/build.config.aarch64"
+grep -Fqx "Pkg.Revision = $NDK_VERSION" "$work/ndk/source.properties"
+
+# Mirror kernel/build's NDK_TRIPLE environment for userspace probes/header tests.
+# These are USER flags only: kernel target flags, compiler, LTO and CFI stay stock.
+# Do not whitelist failed CC_CAN_LINK probes or disable UAPI_HEADER_TEST instead.
+sysroot=$work/ndk/$NDK_SYSROOT
+user_cflags=("--target=$NDK_TRIPLE" "--sysroot=$sysroot" -Wno-unused-function)
+user_ldflags=(-fuse-ld=lld --rtlib=compiler-rt "--target=$NDK_TRIPLE")
+export USERCFLAGS="${user_cflags[*]}" USERLDFLAGS="${user_ldflags[*]}"
+{
+  printf 'ndk_ref=%s\nUSERCFLAGS=%s\nUSERLDFLAGS=%s\n' "$NDK_REF" "$USERCFLAGS" "$USERLDFLAGS"
+  for mode in dynamic static; do
+    probe_flags=()
+    [[ $mode == dynamic ]] || probe_flags=(-static)
+    if ! "$source_dir/scripts/cc-can-link.sh" clang \
+      "${user_cflags[@]}" "${user_ldflags[@]}" "${probe_flags[@]}"; then
+      echo "RETCN $mode userspace link probe failed; check the pinned NDK sysroot/compiler before configuring" >&2
+      exit 1
+    fi
+    echo "RETCN $mode userspace link probe passed"
+  done
+} 2>&1 | tee "$work/userspace-toolchain.log"
 
 # The exact 5.15.189 source accepts this pin without Lineage-specific normalization.
 # git apply checks full context; do not fuzz, skip failed hunks, or silently continue.
@@ -113,8 +138,13 @@ export KBUILD_BUILD_TIMESTAMP KBUILD_BUILD_USER=retcn-builder KBUILD_BUILD_HOST=
 KBUILD_BUILD_TIMESTAMP=$(date -u -d "@$SOURCE_DATE_EPOCH" '+%a %b %d %H:%M:%S UTC %Y')
 export KBUILD_BUILD_VERSION=1
 make_args=(-C "$source_dir" O="$out" ARCH=arm64 LLVM=1 LLVM_IAS=1
-  LOCALVERSION= BUILD_NUMBER= KCFLAGS=-D__ANDROID_COMMON_KERNEL__ KCONFIG_CONFIG="$out/.config")
-make "${make_args[@]}" olddefconfig
+  LOCALVERSION= BUILD_NUMBER= KCFLAGS=-D__ANDROID_COMMON_KERNEL__ KCONFIG_CONFIG="$out/.config"
+  "USERCFLAGS=$USERCFLAGS" "USERLDFLAGS=$USERLDFLAGS")
+make "${make_args[@]}" olddefconfig 2>&1 | tee "$work/configure.log"
+# Preserve the complete drift before validation can stop the build. diff status 1
+# means differences were found, not a command failure; other failures stay fatal.
+diff -u --label stock-RETCN.config --label built-RETCN-SUSFS.config \
+  "$work/stock/kernel.config" "$out/.config" > "$work/config.diff" || [[ $? == 1 ]]
 python3 "$helper" validate-config "$work/stock/kernel.config" "$out/.config"
 # Keep stock full LTO and CFI. Do not substitute ThinLTO merely to fit a runner.
 make "${make_args[@]}" -j"$jobs" Image 2>&1 | tee "$work/build.log"
@@ -128,6 +158,8 @@ mkdir -- "$artifact_dir"
 cp "$image" "$artifact_dir/Image"
 cp "$out/vmlinux.symvers" "$artifact_dir/vmlinux.symvers"
 cp "$work/compiler.txt" "$artifact_dir/compiler.txt"
+cp "$work/userspace-toolchain.log" "$artifact_dir/userspace-toolchain.log"
+cp "$work/configure.log" "$artifact_dir/configure.log"
 cp "$project_root/config/rtwo-retcn/pins.env" "$artifact_dir/source-pins.env"
 git -C "$source_dir" diff --binary > "$artifact_dir/source.patch"
 # Newly copied SUSFS sources are pinned separately, not included in git diff.
