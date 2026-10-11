@@ -19,7 +19,7 @@ done
 jobs=${KERNEL_BUILD_JOBS:-2}
 [[ $jobs =~ ^[1-9][0-9]*$ ]] || { echo "invalid KERNEL_BUILD_JOBS" >&2; exit 2; }
 base_boot=${RTWO_RETCN_BOOT_IMAGE:-}
-base_url=${RTWO_RETCN_BOOT_URL:-}
+base_url=${RTWO_RETCN_BOOT_URL:-$STOCK_BOOT_URL}
 [[ -n $base_boot || $base_url == https://* ]] || {
   echo "Set RTWO_RETCN_BOOT_IMAGE or an HTTPS RTWO_RETCN_BOOT_URL for the pinned stock boot.img" >&2
   exit 2
@@ -48,7 +48,8 @@ free_kb=$(df -Pk "$work" | awk 'END {print $4}')
 if [[ -z $base_boot ]]; then
   base_boot=$work/stock-boot.img
   curl --fail --location --proto '=https' --proto-redir '=https' \
-    --retry 3 --connect-timeout 30 --max-time 1200 --output "$base_boot" "$base_url"
+    --retry 3 --connect-timeout 30 --max-time 1200 --max-filesize "$STOCK_BOOT_SIZE" \
+    --output "$base_boot" "$base_url"
 fi
 # Verify firmware before fetching any large source/toolchain trees. No checksum override.
 python3 "$helper" extract "$base_boot" "$work/stock"
