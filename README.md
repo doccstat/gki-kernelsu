@@ -12,8 +12,8 @@ paths, not Git branches. Choose the matching workflow on `main`:
 | RTWO LineageOS | Build rtwo LineageOS GKI KernelSU variants | `scripts/build-rtwo.sh` |
 | RTWO stock RETCN | Build rtwo RETCN ReSukiSU SUSFS | `scripts/build-rtwo-retcn.sh` |
 
-Each workflow also responds to relevant `main` pushes; RETCN needs the stock
-boot-image input described below before compilation can run.
+Each workflow also responds to relevant `main` pushes. Stock RETCN uses a
+verified firmware mirror by default; see each target's base-image requirements below.
 
 The Pixel build keeps Google's common GKI and Google module source trees together.
 The resulting build includes Google's generated GKI `boot.img`; the stock
@@ -145,27 +145,35 @@ WildKernels performance/baseband patches are added.
 
 Use a case-sensitive Linux x86-64 builder with at least 35 GiB free (100 GiB
 recommended), enough RAM/swap for full LTO, and the dependencies listed in
-[the RETCN workflow](.github/workflows/build-rtwo-retcn.yml). Provide the
-**original extracted RETCN `boot.img`**, not a BOOST, LineageOS, or already
-patched image:
+[the RETCN workflow](.github/workflows/build-rtwo-retcn.yml). The default build
+downloads the **original extracted RETCN `boot.img`** from the
+[verified mirror](https://filedn.com/l6a6JS020EU70J4xNAiVtum/boot.img) pinned in
+`config/rtwo-retcn/pins.env`:
 
 ```sh
 python3 scripts/rtwo-retcn.py verify-pins
 python3 scripts/test-rtwo-retcn.py
-RTWO_RETCN_BOOT_IMAGE=/path/to/W1TR36H.1-33/boot.img ./scripts/build-rtwo-retcn.sh
+./scripts/build-rtwo-retcn.sh
 ```
+
+Alternatively, set `RTWO_RETCN_BOOT_IMAGE=/path/to/W1TR36H.1-33/boot.img` to use
+a saved local file instead of downloading it. Do not supply a BOOST, LineageOS,
+or already-patched image.
 
 Its SHA-256 must be
 `993a72b3da6fb47f7548ad6dc3a4c2e99e14e6bd06c81ba11b322f29bd0c6e21`.
 There is no checksum override or Lineage fallback. The stock Image and embedded
 config are independently checked too; no phone connection is needed.
 
-For GitHub Actions, select **Build rtwo RETCN ReSukiSU SUSFS** on `main` and
-supply `stock_boot_url`, an HTTPS URL serving that exact boot file. Alternatively
-set the repository variable `RTWO_RETCN_BOOT_URL` to enable RETCN builds on
-relevant `main` pushes. Without the variable, pushes run offline tests only. Firmware is not
-redistributed in this repository; use a credential-free download URL because
-workflow inputs/environment may appear in logs.
+For GitHub Actions, select **Build rtwo RETCN ReSukiSU SUSFS** on `main`, or push
+relevant changes to `main`: both validate and build using the pinned mirror,
+without requiring a repository variable. Optional `stock_boot_url` takes
+precedence over repository variable `RTWO_RETCN_BOOT_URL`, then the pinned
+mirror; every source must serve the same checksum-matched stock file. Local
+builds likewise accept `RTWO_RETCN_BOOT_URL` when no local file is supplied.
+The firmware blob is not committed here. Use credential-free HTTPS URLs because
+workflow inputs/environment may appear in logs. This RETCN mirror is **not** a
+replacement for the separate LineageOS base image.
 
 Output is under `out/rtwo-retcn/resukisu-susfs/`:
 

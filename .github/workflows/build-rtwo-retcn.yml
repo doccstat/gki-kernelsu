@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       stock_boot_url:
-        description: 'HTTPS URL of stock W1TR36H.1-33 boot.img (or use RTWO_RETCN_BOOT_URL repository variable)'
+        description: 'Optional HTTPS override for stock W1TR36H.1-33 boot.img (default: verified pinned mirror)'
         type: string
         required: false
   push:
@@ -32,14 +32,9 @@ jobs:
         run: |
           python3 scripts/rtwo-retcn.py verify-pins
           python3 scripts/test-rtwo-retcn.py
-      - name: Explain stock input requirement
-        if: github.event_name == 'push' && vars.RTWO_RETCN_BOOT_URL == ''
-        run: |
-          echo 'Tests only: configure repository variable RTWO_RETCN_BOOT_URL or manually dispatch with stock_boot_url to build. The firmware checksum is fixed in config/rtwo-retcn/pins.env.' >> "$GITHUB_STEP_SUMMARY"
 
   build:
     needs: validate
-    if: github.event_name == 'workflow_dispatch' || vars.RTWO_RETCN_BOOT_URL != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     env:
@@ -47,10 +42,12 @@ jobs:
       KERNEL_BUILD_JOBS: 2
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - name: Require explicit firmware input
+      - name: Validate stock firmware source
         run: |
-          [[ "$RTWO_RETCN_BOOT_URL" == https://* ]] || {
-            echo 'Provide an HTTPS stock_boot_url or RTWO_RETCN_BOOT_URL repository variable.' >&2
+          # shellcheck disable=SC1091
+          source config/rtwo-retcn/pins.env
+          [[ "${RTWO_RETCN_BOOT_URL:-$STOCK_BOOT_URL}" == https://* ]] || {
+            echo 'The stock_boot_url override or pinned stock mirror must use HTTPS.' >&2
             exit 1
           }
       - name: Install build dependencies (compiler comes from the pinned prebuilt tree)

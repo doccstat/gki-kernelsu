@@ -42,6 +42,7 @@ def load_pins() -> dict[str, str]:
         require(bool(re.fullmatch(r"[0-9a-f]{40}", pins[key])), f"invalid {key}")
     for key in ("STOCK_BOOT_SHA256", "STOCK_IMAGE_SHA256", "STOCK_CONFIG_SHA256"):
         require(bool(re.fullmatch(r"[0-9a-f]{64}", pins[key])), f"invalid {key}")
+    require(bool(re.fullmatch(r"https://[^\s]+", pins["STOCK_BOOT_URL"])), "invalid stock boot URL")
     require(pins["ANDROID_KERNEL_FAMILY"] == "android13-5.15", "wrong kernel family")
     require(pins["KMI_GENERATION"] == "8", "wrong KMI generation")
     require(pins["DEVICE"] == "rtwo", "wrong device")

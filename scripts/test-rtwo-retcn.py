@@ -9,6 +9,7 @@ import struct
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 SPEC = importlib.util.spec_from_file_location("retcn", Path(__file__).with_name("rtwo-retcn.py"))
 r = importlib.util.module_from_spec(SPEC)
@@ -69,6 +70,30 @@ class RetcnTests(unittest.TestCase):
         self.assertIn("KERNEL_VERSION=5.15.208", lineage)
         self.assertIn("LINEAGE_BOOT_SHA256=19e22bfd", lineage)
         self.assertNotIn("LINEAGE_BOOT_URL", r.PIN_FILE.read_text())
+        url = r.load_pins()["STOCK_BOOT_URL"]
+        self.assertEqual(url, "https://filedn.com/l6a6JS020EU70J4xNAiVtum/boot.img")
+        self.assertNotIn(url, lineage)
+
+    def test_stock_mirror_must_be_https(self):
+        original = r.PIN_FILE.read_text()
+        url = r.load_pins()["STOCK_BOOT_URL"]
+        with tempfile.TemporaryDirectory() as tmp:
+            pins_file = Path(tmp) / "pins.env"
+            for invalid in ("http://mirror.example/boot.img", "https://", "https://mirror.example/a b"):
+                with self.subTest(url=invalid):
+                    pins_file.write_text(original.replace("STOCK_BOOT_URL=" + url,
+                                                          "STOCK_BOOT_URL=" + repr(invalid)))
+                    with patch.object(r, "PIN_FILE", pins_file), self.assertRaisesRegex(ValueError, "stock boot URL"):
+                        r.load_pins()
+
+    def test_ci_uses_default_mirror_without_a_repository_variable(self):
+        workflow = (r.ROOT / ".github/workflows/build-rtwo-retcn.yml").read_text()
+        build = workflow.split("\n  build:\n", 1)[1]
+        self.assertIn("    needs: validate", build)
+        self.assertNotRegex(build, r"(?m)^    if:")
+        self.assertIn("RTWO_RETCN_BOOT_URL: ${{ inputs.stock_boot_url || vars.RTWO_RETCN_BOOT_URL }}", build)
+        self.assertIn('${RTWO_RETCN_BOOT_URL:-$STOCK_BOOT_URL}', build)
+        self.assertNotIn("Tests only:", workflow)
 
     def test_all_build_targets_live_on_main(self):
         for filename, entry in (("build.yml", "./scripts/build.sh"),
@@ -201,7 +226,7 @@ class RetcnTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         subprocess.run(["bash", "-n", str(r.ROOT / "scripts/build-rtwo-retcn.sh")], check=True)
 
-    def test_build_preflight_has_no_network_or_lineage_fallback(self):
+    def test_build_preflight_guards_and_verified_download_selection(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             project, tools = tmp / "project", tmp / "bin"
@@ -232,7 +257,6 @@ class RetcnTests(unittest.TestCase):
             env["LC_ALL"] = "C"
             cases = [
                 ({"VARIANT": "sukisu-kpm"}, "only built-in resukisu-susfs"),
-                ({}, "Set RTWO_RETCN_BOOT_IMAGE"),
                 ({"RTWO_RETCN_BOOT_URL": "http://example.invalid/boot.img"}, "HTTPS"),
                 ({"RTWO_RETCN_BOOT_IMAGE": str(bad_boot)}, "stock boot size mismatch"),
                 ({"RTWO_RETCN_BOOT_IMAGE": str(bad_boot), "RTWO_RETCN_WORKDIR": str(work)}, "File exists"),
@@ -247,6 +271,37 @@ class RetcnTests(unittest.TestCase):
                     self.assertNotIn("UNEXPECTED_EXTERNAL_COMMAND", result.stderr)
             self.assertEqual(marker.read_text(), "untouched")
             self.assertEqual(bad_boot.read_bytes(), self.boot)
+
+            # Exercise URL precedence without a real download or source sync.
+            # Even a successful transfer must fail on the wrong firmware bytes.
+            curl_log = tmp / "curl-args"
+            (tools / "curl").write_text('''#!/bin/sh
+printf '%s\\n' "$@" > "$TEST_CURL_ARGS"
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = --output ]; then
+    cp -- "$TEST_BAD_BOOT" "$2"
+    exit 0
+  fi
+  shift
+done
+exit 98
+''')
+            env.update(TEST_CURL_ARGS=str(curl_log), TEST_BAD_BOOT=str(bad_boot))
+            default_url = r.load_pins()["STOCK_BOOT_URL"]
+            for settings, expected_url in (
+                ({}, default_url),
+                ({"RTWO_RETCN_BOOT_URL": ""}, default_url),
+                ({"RTWO_RETCN_BOOT_URL": "https://mirror.example/boot.img"}, "https://mirror.example/boot.img"),
+            ):
+                with self.subTest(download=settings):
+                    result = subprocess.run(["bash", str(project / "scripts/build-rtwo-retcn.sh")],
+                                            env={**env, **settings}, capture_output=True, text=True)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("stock boot size mismatch", result.stderr)
+                    self.assertNotIn("UNEXPECTED_EXTERNAL_COMMAND", result.stderr)
+                    args = curl_log.read_text().splitlines()
+                    self.assertEqual(args[-1], expected_url)
+                    self.assertEqual(args[args.index("--max-filesize") + 1], "100663296")
 
     @unittest.skipUnless(os.environ.get("RETCN_TEST_BOOT"), "optional stock firmware fixture not supplied")
     def test_real_stock_firmware(self):
