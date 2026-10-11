@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-project_root=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+prepare_only=0
+if [[ $# == 1 && ${1:-} == --prepare ]]; then
+  prepare_only=1
+elif [[ $# != 0 ]]; then
+  echo "usage: $0 [--prepare]" >&2
+  exit 2
+fi
+
+project_root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck disable=SC1091
 source "$project_root/config/rtwo/pins.env"
 
@@ -21,21 +29,52 @@ base_url=${RTWO_BASE_BOOT_URL:-$LINEAGE_BOOT_URL}
 base_sha256=${RTWO_BASE_BOOT_SHA256:-$LINEAGE_BOOT_SHA256}
 tools_dir=${MKBOOTIMG_DIR:-$project_root/.work/mkbootimg}
 
-[[ -f "$image" ]] || {
+if [[ "$prepare_only" == 0 && ! -f "$image" ]]; then
   echo "missing raw kernel Image: $image" >&2
   exit 1
-}
+fi
 [[ "$base_sha256" =~ ^[0-9a-f]{64}$ ]] || {
   echo "invalid base boot SHA-256" >&2
   exit 1
 }
-
-command -v curl >/dev/null 2>&1 || {
-  echo "curl is required to fetch the pinned base boot image" >&2
+if [[ -n ${RTWO_BASE_BOOT_IMAGE:-} && ! -f "$base_boot" ]]; then
+  echo "missing supplied LineageOS base boot image: $base_boot" >&2
   exit 1
-}
+fi
 command -v sha256sum >/dev/null 2>&1 || {
   echo "sha256sum is required to verify the base boot image" >&2
+  exit 1
+}
+
+mkdir -p "$project_root/.work"
+package_work=$(mktemp -d "$project_root/.work/package-rtwo-boot.XXXXXX")
+download_tmp=
+trap 'rm -rf -- "$package_work"; if [[ -n "$download_tmp" ]]; then rm -f -- "$download_tmp"; fi' EXIT
+base_candidate=$base_boot
+if [[ ! -f "$base_boot" ]]; then
+  [[ "$base_url" == https://* ]] || {
+    echo "RTWO_BASE_BOOT_URL must be an HTTPS URL" >&2
+    exit 1
+  }
+  command -v curl >/dev/null 2>&1 || {
+    echo "curl is required to fetch the pinned base boot image" >&2
+    exit 1
+  }
+  mkdir -p "$(dirname "$base_boot")"
+  download_tmp=$(mktemp "$base_boot.download.XXXXXX")
+  # Retry transient failures, not a permanently retired build's HTTP 404.
+  if ! curl --fail --location --retry 3 --retry-delay 2 \
+    --connect-timeout 20 --max-time 600 --proto '=https' --proto-redir '=https' \
+    --output "$download_tmp" "$base_url"; then
+    echo "Cannot download the pinned LineageOS $LINEAGE_BUILD_DATE boot.img; old builds may expire." >&2
+    echo "Supply RTWO_BASE_BOOT_IMAGE or an HTTPS mirror via RTWO_BASE_BOOT_URL." >&2
+    echo "Required base SHA-256: $base_sha256" >&2
+    exit 1
+  fi
+  base_candidate=$download_tmp
+fi
+printf '%s  %s\n' "$base_sha256" "$base_candidate" | sha256sum --check --status - || {
+  echo "base boot image checksum mismatch: $base_boot (expected $base_sha256)" >&2
   exit 1
 }
 
@@ -44,30 +83,26 @@ command -v sha256sum >/dev/null 2>&1 || {
   echo "mkbootimg tools are incomplete in $tools_dir" >&2
   exit 1
 }
-
-mkdir -p "$(dirname "$base_boot")" "$artifact_dir" "$project_root/.work"
-if [[ ! -f "$base_boot" ]]; then
-  curl --fail --location --retry 3 --retry-delay 2 --retry-all-errors \
-    --output "$base_boot" "$base_url"
-fi
-printf '%s  %s\n' "$base_sha256" "$base_boot" | sha256sum --check --status - || {
-  echo "base boot image checksum mismatch: $base_boot" >&2
-  exit 1
-}
-
-package_work=$(mktemp -d "$project_root/.work/package-rtwo-boot.XXXXXX")
-trap 'rm -rf -- "$package_work"' EXIT
 unpacked_dir="$package_work/unpacked"
 mkdir -p "$unpacked_dir"
 
 python3 "$tools_dir/unpack_bootimg.py" \
-  --boot_img "$base_boot" \
+  --boot_img "$base_candidate" \
   --out "$unpacked_dir" \
   --format info | tee "$package_work/base-boot-info.txt"
 grep -q '^boot image header version: 4$' "$package_work/base-boot-info.txt" || {
   echo "the pinned rtwo base boot image is not a v4 boot image" >&2
   exit 1
 }
+# Only a verified complete download becomes the reusable cache entry.
+if [[ -n "$download_tmp" ]]; then
+  mv -- "$download_tmp" "$base_boot"
+  download_tmp=
+fi
+if [[ "$prepare_only" == 1 ]]; then
+  echo "verified LineageOS base boot image and packaging tools: $base_boot"
+  exit 0
+fi
 
 declare -a mkbootimg_args=()
 while IFS= read -r -d '' arg; do
@@ -93,6 +128,7 @@ done
 }
 mkbootimg_args[kernel_arg]="$image"
 
+mkdir -p "$artifact_dir"
 boot_image="$artifact_dir/boot.img"
 python3 "$tools_dir/mkbootimg.py" \
   "${mkbootimg_args[@]}" \

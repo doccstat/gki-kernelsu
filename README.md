@@ -87,25 +87,51 @@ VARIANT=sukisu-kpm ./scripts/build-rtwo.sh
 VARIANT=resukisu-susfs ./scripts/build-rtwo.sh
 ```
 
-The GitHub Actions workflow sets `PACKAGE_BOOT_IMAGE=1`, so each successful
-variant now contains both the raw `Image` and a generated `boot.img`. The
-packager downloads the standalone `boot.img` from the pinned LineageOS build,
-verifies its SHA-256, replaces only its common kernel payload, preserves the
-Android boot header, and validates the result after rebuilding it with the
-pinned AOSP `mkbootimg` tools. The stock `vendor_boot`, `vendor_dlkm`, and
-`system_dlkm` images are not changed and are not included in this artifact.
+The GitHub Actions workflow verifies the base boot image and packaging tools
+**before compilation**, then builds the raw `Image` and packages `boot.img` in
+separate steps. The packager checks the base SHA-256 and v4 header, replaces only
+the common kernel payload, and validates the result with pinned AOSP `mkbootimg`
+tools. Stock `vendor_boot`, `vendor_dlkm`, and `system_dlkm` remain untouched.
 
-To produce the same packaged image in a Linux build, set
-`PACKAGE_BOOT_IMAGE=1`. The base boot image and tooling pins are in
-[`config/rtwo/pins.env`](config/rtwo/pins.env). Keep the generated image paired
-with the matching W1TR36H.56-13 Lineage/vendor set; do not mix it with an OTA or
-factory-image slot whose kernel release, vendor modules, or KMI differ from the
-recorded baseline. Retain an untouched bootable slot for recovery.
+**Old LineageOS downloads can expire.** The pinned `20260822` download currently
+returns HTTP 404. Supply a credential-free HTTPS mirror of the **same original
+boot image** through workflow input `base_boot_url` or repository variable
+`RTWO_BASE_BOOT_URL`. The expected SHA-256 remains
+`19e22bfd013f6cc934c5ee667084cc678b8601237a8dfd346c031fbf1e708f08`;
+changing the URL does not change the baseline or disable verification. Without
+a matching local copy or working mirror, packaged builds remain blocked rather
+than silently using a newer LineageOS, RETCN, or already-patched boot image.
 
-Run the static lock validation before building:
+For a complete local build with a saved base:
+
+```sh
+VARIANT=resukisu-susfs PACKAGE_BOOT_IMAGE=1 \
+  RTWO_BASE_BOOT_IMAGE=/path/to/lineage-20260822/boot.img ./scripts/build-rtwo.sh
+```
+
+This also verifies the base before source sync. A raw-only local build (the
+default commands above) does not need the base image. If a later CI packaging
+step fails after compilation, an `-unpackaged` artifact retains only the raw
+kernel and build metadata, not a potentially incomplete boot image. A raw
+`Image` is **not** a flashable Android `boot.img`. To package a retained Image
+without recompiling:
+
+```sh
+VARIANT=resukisu-susfs RTWO_IMAGE=/path/to/Image \
+  RTWO_BASE_BOOT_IMAGE=/path/to/lineage-20260822/boot.img ./scripts/package-rtwo-boot.sh
+```
+
+The base/tooling pins are in [`config/rtwo/pins.env`](config/rtwo/pins.env).
+Keep the generated image paired with the matching W1TR36H.56-13 Lineage/vendor
+set; do not mix it with a slot whose kernel release, vendor modules, or KMI
+differs from the recorded baseline. Retain a known-good recovery image.
+
+Validate pins/tests offline, or check packaging inputs without building:
 
 ```sh
 ./scripts/verify-rtwo-pins.sh
+python3 scripts/test-rtwo-boot.py
+RTWO_BASE_BOOT_IMAGE=/path/to/lineage-20260822/boot.img ./scripts/package-rtwo-boot.sh --prepare
 ```
 
 ### Stock RETCN build target
