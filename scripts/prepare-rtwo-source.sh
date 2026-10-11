@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-project_root=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+project_root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck disable=SC1091
 source "$project_root/config/rtwo/pins.env"
 
@@ -117,7 +117,7 @@ if [[ "$ENABLE_SUSFS" == 1 ]]; then
   clone_pinned "$SUSFS_REPO" "$SUSFS_REF" "$susfs_dir"
   cp "$susfs_dir/kernel_patches/fs/"* "$source_dir/fs/"
   cp "$susfs_dir/kernel_patches/include/linux/"* "$source_dir/include/linux/"
-  # The current 5.15.208 source carries these trace-hook includes while the
+  # The pinned LineageOS source carries these trace-hook includes while the
   # pinned SUSFS patch was authored against an older 5.15 layout. Remove them
   # temporarily so the patch context applies, then restore them below because
   # the Qualcomm source still calls the hooks they declare.
@@ -133,7 +133,7 @@ for name, needle in (
     path.write_text("".join(line for line in path.read_text().splitlines(True)
                             if line.strip() != needle))
 PY
-  patch --batch --forward --silent -d "$source_dir" -p1 < "$susfs_dir/$SUSFS_PATCH"
+  patch --batch --forward --fuzz=0 --silent -d "$source_dir" -p1 < "$susfs_dir/$SUSFS_PATCH"
   python3 - "$source_dir/fs/namespace.c" "$source_dir/fs/proc/task_mmu.c" <<'PY'
 from pathlib import Path
 import sys
