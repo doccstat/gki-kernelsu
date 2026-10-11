@@ -129,6 +129,14 @@ if marker not in s or 'source "drivers/kernelsu/Kconfig"' in s:
 p.write_text(s.replace(marker, '\nsource "drivers/kernelsu/Kconfig"' + marker, 1))
 PY
 
+# Keep stock LOCALVERSION_AUTO/MODULE_SCMVERSION enabled. The upstream
+# setlocalversion cache fixes the release despite our shallow, patched checkout;
+# this is compatibility metadata, not a claim that the modified kernel is OEM.
+[[ ! -e $source_dir/.scmversion && ! -L $source_dir/.scmversion ]] || {
+  echo "unexpected source .scmversion; refusing to overwrite it" >&2; exit 1;
+}
+printf '%s\n' "${STOCK_KERNEL_RELEASE#"$KERNEL_VERSION"}" > "$source_dir/.scmversion"
+
 out=$work/build
 mkdir "$out"
 python3 "$helper" configure "$work/stock/kernel.config" "$out/.config"
@@ -146,6 +154,11 @@ make "${make_args[@]}" olddefconfig 2>&1 | tee "$work/configure.log"
 diff -u --label stock-RETCN.config --label built-RETCN-SUSFS.config \
   "$work/stock/kernel.config" "$out/.config" > "$work/config.diff" || [[ $? == 1 ]]
 python3 "$helper" validate-config "$work/stock/kernel.config" "$out/.config"
+make --no-print-directory -s "${make_args[@]}" kernelrelease | tee "$work/kernel-release.txt"
+[[ $(< "$work/kernel-release.txt") == "$STOCK_KERNEL_RELEASE" ]] || {
+  echo "RETCN kernel release mismatch; expected $STOCK_KERNEL_RELEASE; refusing Image compilation" >&2
+  exit 1
+}
 # Keep stock full LTO and CFI. Do not substitute ThinLTO merely to fit a runner.
 make "${make_args[@]}" -j"$jobs" Image 2>&1 | tee "$work/build.log"
 image=$out/arch/arm64/boot/Image
@@ -160,6 +173,8 @@ cp "$out/vmlinux.symvers" "$artifact_dir/vmlinux.symvers"
 cp "$work/compiler.txt" "$artifact_dir/compiler.txt"
 cp "$work/userspace-toolchain.log" "$artifact_dir/userspace-toolchain.log"
 cp "$work/configure.log" "$artifact_dir/configure.log"
+cp "$work/kernel-release.txt" "$artifact_dir/kernel-release.txt"
+cp "$source_dir/.scmversion" "$artifact_dir/kernel.scmversion"
 cp "$project_root/config/rtwo-retcn/pins.env" "$artifact_dir/source-pins.env"
 git -C "$source_dir" diff --binary > "$artifact_dir/source.patch"
 # Newly copied SUSFS sources are pinned separately, not included in git diff.

@@ -90,6 +90,8 @@ jobs:
             .work/rtwo-retcn.*/userspace-toolchain.log
             .work/rtwo-retcn.*/configure.log
             .work/rtwo-retcn.*/config.diff
+            .work/rtwo-retcn.*/kernel-release.txt
+            .work/rtwo-retcn.*/common/.scmversion
             .work/rtwo-retcn.*/build/.config
             .work/rtwo-retcn.*/stock/kernel.config
           if-no-files-found: ignore
