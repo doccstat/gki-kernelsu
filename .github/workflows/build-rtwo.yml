@@ -2,6 +2,11 @@ name: Build rtwo LineageOS GKI KernelSU variants
 
 on:
   workflow_dispatch:
+    inputs:
+      base_boot_url:
+        description: 'HTTPS mirror of the pinned LineageOS 20260822 boot.img (same SHA-256)'
+        required: false
+        type: string
   push:
     branches: [main]
     paths:
@@ -10,6 +15,7 @@ on:
       - 'scripts/prepare-rtwo-source.sh'
       - 'scripts/fetch-mkbootimg-tools.sh'
       - 'scripts/package-rtwo-boot.sh'
+      - 'scripts/test-rtwo-boot.py'
       - 'scripts/verify-rtwo-pins.sh'
       - '.github/workflows/build-rtwo.yml'
       - 'README.md'
@@ -32,7 +38,9 @@ jobs:
       KERNEL_BUILD_JOBS: 2
       KERNEL_LTO_JOBS: 1
       KERNEL_BUILD_HEARTBEAT_SECONDS: 60
-      PACKAGE_BOOT_IMAGE: 1
+      # Package in a separate step so a packaging failure cannot hide a built Image.
+      PACKAGE_BOOT_IMAGE: 0
+      RTWO_BASE_BOOT_URL: ${{ inputs.base_boot_url || vars.RTWO_BASE_BOOT_URL }}
     steps:
       - name: Checkout workspace
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -44,6 +52,12 @@ jobs:
             bc bison build-essential ca-certificates clang cpio flex git \
             dwarves lld libelf-dev libssl-dev llvm openssl perl python3 rsync unzip \
             zip zstd curl
+
+      - name: Test LineageOS boot preparation and packaging
+        run: python3 scripts/test-rtwo-boot.py
+
+      - name: Prepare and verify pinned LineageOS base boot
+        run: ./scripts/package-rtwo-boot.sh --prepare
 
       - name: Free runner disk for LLVM LTO
         run: |
@@ -81,7 +95,23 @@ jobs:
           swapon --show
 
       - name: Build pinned rtwo Image
+        id: kernel
         run: ./scripts/build-rtwo.sh
+
+      - name: Package LineageOS boot image
+        id: package
+        run: ./scripts/package-rtwo-boot.sh
+
+      - name: Upload raw kernel if packaging fails
+        if: ${{ failure() && steps.kernel.outcome == 'success' && steps.package.outcome == 'failure' }}
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        with:
+          name: rtwo-${{ matrix.variant }}-${{ github.sha }}-unpackaged
+          path: |
+            out/rtwo/${{ matrix.variant }}/Image
+            out/rtwo/${{ matrix.variant }}/Image.sha256
+            out/rtwo/${{ matrix.variant }}/build-metadata.txt
+          if-no-files-found: error
 
       - name: Upload rtwo kernel image and metadata
         uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08

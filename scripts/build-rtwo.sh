@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-project_root=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+project_root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck disable=SC1091
 source "$project_root/config/rtwo/pins.env"
 
@@ -24,6 +24,17 @@ command -v pahole >/dev/null 2>&1 || {
   echo "pahole is required for CONFIG_DEBUG_INFO_BTF; install the dwarves package" >&2
   exit 2
 }
+
+package_boot_image=${PACKAGE_BOOT_IMAGE:-0}
+[[ "$package_boot_image" == 0 || "$package_boot_image" == 1 ]] || {
+  echo "PACKAGE_BOOT_IMAGE must be 0 or 1" >&2
+  exit 1
+}
+if [[ "$package_boot_image" == 1 ]]; then
+  # Resolve expiring firmware URLs and verify the base before any source sync
+  # or compilation. The final packaging pass reuses and rechecks this cache.
+  VARIANT="$variant" "$project_root/scripts/package-rtwo-boot.sh" --prepare
+fi
 
 RTWO_WORKDIR=${RTWO_WORKDIR:-$project_root/.work/rtwo-android13-5.15/$variant}
 export RTWO_WORKDIR
@@ -140,11 +151,6 @@ sha256sum "$artifact_dir/Image" > "$artifact_dir/Image.sha256"
 } > "$artifact_dir/build-metadata.txt"
 echo "built $artifact_dir/Image"
 
-package_boot_image=${PACKAGE_BOOT_IMAGE:-0}
-[[ "$package_boot_image" == 0 || "$package_boot_image" == 1 ]] || {
-  echo "PACKAGE_BOOT_IMAGE must be 0 or 1" >&2
-  exit 1
-}
 if [[ "$package_boot_image" == 1 ]]; then
   VARIANT="$variant" RTWO_IMAGE="$artifact_dir/Image" \
     RTWO_ARTIFACT_DIR="$artifact_dir" \
