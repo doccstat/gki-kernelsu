@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-project_root=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+project_root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck disable=SC1091
 source "$project_root/config/rtwo/pins.env"
 
@@ -20,12 +20,18 @@ done
   echo "invalid LINEAGE_BUILD_VERSION=$LINEAGE_BUILD_VERSION" >&2
   exit 1
 }
-[[ "$LINEAGE_BOOT_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
-  echo "invalid LINEAGE_BOOT_SHA256" >&2
+for name in LINEAGE_BOOT_SHA256 LINEAGE_MANIFEST_SHA256; do
+  [[ "${!name}" =~ ^[0-9a-f]{64}$ ]] || {
+    echo "invalid $name" >&2
+    exit 1
+  }
+done
+[[ "$LINEAGE_BOOT_URL" == "https://mirrorbits.lineageos.org/full/rtwo/$LINEAGE_BUILD_DATE/boot.img" ]] || {
+  echo "LINEAGE_BOOT_URL does not match LINEAGE_BUILD_DATE" >&2
   exit 1
 }
-[[ "$LINEAGE_BOOT_URL" == https://mirrorbits.lineageos.org/full/rtwo/*/boot.img ]] || {
-  echo "unexpected LINEAGE_BOOT_URL=$LINEAGE_BOOT_URL" >&2
+[[ "$LINEAGE_MANIFEST_URL" == "https://mirrorbits.lineageos.org/full/rtwo/$LINEAGE_BUILD_DATE/build-manifest.xml" ]] || {
+  echo "LINEAGE_MANIFEST_URL does not match LINEAGE_BUILD_DATE" >&2
   exit 1
 }
 
@@ -35,8 +41,12 @@ done
   echo "unexpected Android kernel family" >&2
   exit 1
 }
-[[ "$LINEAGE_KERNEL_RELEASE" == 5.15.208-ge3f43b79f663 ]] || {
-  echo "Lineage kernel release no longer matches the recorded device" >&2
+[[ "$KERNEL_VERSION" =~ ^5\.15\.[0-9]+$ && "$KERNEL_RELEASE" == "$KERNEL_VERSION-android13" ]] || {
+  echo "kernel version/release no longer matches the Android 13/5.15 target" >&2
+  exit 1
+}
+[[ "$LINEAGE_KERNEL_RELEASE" == "$KERNEL_VERSION-g${KERNEL_REF:0:12}" ]] || {
+  echo "Lineage kernel release no longer matches the pinned source" >&2
   exit 1
 }
 [[ "$SUSFS_PATCH" == kernel_patches/50_add_susfs_in_gki-android13-5.15.patch ]] || {

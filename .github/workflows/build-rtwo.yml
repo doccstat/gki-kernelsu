@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       base_boot_url:
-        description: 'HTTPS mirror of the pinned LineageOS 20260822 boot.img (same SHA-256)'
+        description: 'HTTPS mirror of the pinned LineageOS boot.img (same SHA-256; see config/rtwo/pins.env)'
         required: false
         type: string
   push:

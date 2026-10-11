@@ -24,6 +24,81 @@ def boot_image(kernel=b"stock kernel", version=4):
     return (header + kernel).ljust(8192, b"\0")
 
 
+class LineagePinTests(unittest.TestCase):
+    # Verified official API/manifest/OTA metadata for the reviewed baseline.
+    # Updating the nightly requires moving all of these identities together.
+    expected = {
+        "LINEAGE_BUILD_DATE": "20261010",
+        "LINEAGE_BUILD_VERSION": "23.2",
+        "KERNEL_VERSION": "5.15.211",
+        "KERNEL_RELEASE": "5.15.211-android13",
+        "LINEAGE_KERNEL_RELEASE": "5.15.211-gdd41f9493930",
+        "LINEAGE_FINGERPRINT": "motorola/rtwo_g/rtwo:16/W1TRS36H.56-13-1-3/cb3b97-65907:user/release-keys",
+        "LINEAGE_SECURITY_PATCH": "2026-10-01",
+        "LINEAGE_BOOT_URL": "https://mirrorbits.lineageos.org/full/rtwo/20261010/boot.img",
+        "LINEAGE_BOOT_SHA256": "60fbd11ac6eeeb7a59161721cc458a2ac283f1893a77e2265aab42972db85937",
+        "LINEAGE_MANIFEST_URL": "https://mirrorbits.lineageos.org/full/rtwo/20261010/build-manifest.xml",
+        "LINEAGE_MANIFEST_SHA256": "5d72cb70bf7eddb02e24146f0f77df8596b059bd5d25a7e080e239e5b34e8ac8",
+        "KERNEL_REF": "dd41f94939309e39fbbe33cfaab07cebc7ca617a",
+        "MODULES_REF": "e1b7dc6e6c462351535a9a3ef8cf4719af1be4d1",
+        "DEVICETREES_REF": "3e22026d00a30d8f07ae9565cbdff455ec337317",
+        "LINEAGE_DEVICE_REF": "e0c2b53fc1a49105014e95512bc6d6fea7741c4f",
+        "LINEAGE_COMMON_REF": "9862398b6a7513cd330fead016f38325de9f3336",
+    }
+
+    def setUp(self):
+        self.pins = dict(line.split("=", 1) for line in (ROOT / "config/rtwo/pins.env").read_text().splitlines()
+                         if line and not line.startswith("#"))
+
+    def verify(self, **overrides):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(ROOT / "config/rtwo", root / "config/rtwo")
+            pins = {**self.pins, **overrides}
+            (root / "config/rtwo/pins.env").write_text("".join(f"{key}={value}\n" for key, value in pins.items()))
+            (root / "scripts").mkdir()
+            script = root / "scripts/verify-rtwo-pins.sh"
+            shutil.copy2(ROOT / "scripts/verify-rtwo-pins.sh", script)
+            return subprocess.run(["bash", str(script)], capture_output=True, text=True, timeout=10)
+
+    def test_pins_match_the_reviewed_official_build(self):
+        for name, value in self.expected.items():
+            with self.subTest(pin=name):
+                self.assertEqual(self.pins[name], value)
+
+    def test_both_variants_validate_with_the_new_baseline(self):
+        result = self.verify()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("validated rtwo variant sukisu-kpm", result.stdout)
+        self.assertIn("validated rtwo variant resukisu-susfs", result.stdout)
+
+    def test_mismatched_artifact_dates_are_rejected(self):
+        for name in ("LINEAGE_BOOT_URL", "LINEAGE_MANIFEST_URL"):
+            with self.subTest(pin=name):
+                result = self.verify(**{name: self.pins[name].replace("20261010", "20260822")})
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("does not match LINEAGE_BUILD_DATE", result.stderr)
+
+    def test_source_release_drift_is_rejected(self):
+        for name, value in {
+            "KERNEL_REF": "f957779e27df2fc45c38539527de6cd6b0f2b3b0",
+            "KERNEL_VERSION": "5.15.208",
+            "KERNEL_RELEASE": "5.15.208-android13",
+            "LINEAGE_KERNEL_RELEASE": "5.15.208-ge3f43b79f663",
+        }.items():
+            with self.subTest(pin=name):
+                result = self.verify(**{name: value})
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("no longer matches", result.stderr)
+
+    def test_invalid_artifact_hashes_are_rejected(self):
+        for name in ("LINEAGE_BOOT_SHA256", "LINEAGE_MANIFEST_SHA256"):
+            with self.subTest(pin=name):
+                result = self.verify(**{name: "not-a-hash"})
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("invalid " + name, result.stderr)
+
+
 class BootPreparationTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -139,6 +214,7 @@ Path(a.output).write_bytes(header + kernel)
         self.assertIn("--proto-redir", curl)
         self.assertNotIn("--retry-all-errors", curl)
         self.assertEqual(list(self.cache.parent.glob("*.download.*")), [])
+        self.assertEqual(curl[-1], LineagePinTests.expected["LINEAGE_BOOT_URL"])
 
     def test_valid_cache_needs_no_download(self):
         self.cache.parent.mkdir(parents=True)
@@ -237,6 +313,9 @@ Path(a.output).write_bytes(header + kernel)
         metadata = (self.artifacts / "boot-metadata.txt").read_text()
         self.assertIn("base_boot_sha256=" + self.sha, metadata)
         self.assertIn("variant=" + VARIANT, metadata)
+        for name in ("LINEAGE_FINGERPRINT", "LINEAGE_KERNEL_RELEASE", "LINEAGE_BUILD_DATE",
+                     "LINEAGE_BUILD_VERSION", "LINEAGE_MANIFEST_URL", "LINEAGE_MANIFEST_SHA256"):
+            self.assertIn(name.lower() + "=" + LineagePinTests.expected[name], metadata)
         self.assertTrue((self.artifacts / "boot.img.sha256").is_file())
 
     def test_build_packaging_preflight_precedes_source_sync(self):

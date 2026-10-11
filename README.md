@@ -68,10 +68,12 @@ use its `boot.img` as a stock RETCN replacement.
 
 The workspace builds the LineageOS GKI Image for the Motorola Edge+ 2023.
 Its current baseline is recorded in
-[`config/rtwo/pins.env`](config/rtwo/pins.env): Android 13/5.15 GKI,
-Kalama, kernel `5.15.208-ge3f43b79f663`, and the matching W1TR36H.56-13
-Lineage/vendor module source. The build keeps the stock `vendor_dlkm` and
-`system_dlkm` modules; it replaces only the common boot `Image`.
+[`config/rtwo/pins.env`](config/rtwo/pins.env): **LineageOS 23.2 / 2026-10-10**,
+Android 13/5.15 GKI, Kalama, kernel `5.15.211-gdd41f9493930`, and the matching
+`W1TRS36H.56-13-1-3` fingerprint/vendor baseline (security patch `2026-10-01`).
+The official build manifest pins the kernel, external modules, devicetrees and
+both device repositories together. The build keeps the matching `vendor_dlkm`
+and `system_dlkm` modules; it replaces only the common boot `Image`.
 
 The two rtwo variants deliberately match the Pixel matrix:
 
@@ -93,20 +95,24 @@ separate steps. The packager checks the base SHA-256 and v4 header, replaces onl
 the common kernel payload, and validates the result with pinned AOSP `mkbootimg`
 tools. Stock `vendor_boot`, `vendor_dlkm`, and `system_dlkm` remain untouched.
 
-**Old LineageOS downloads can expire.** The pinned `20260822` download currently
-returns HTTP 404. Supply a credential-free HTTPS mirror of the **same original
-boot image** through workflow input `base_boot_url` or repository variable
-`RTWO_BASE_BOOT_URL`. The expected SHA-256 remains
-`19e22bfd013f6cc934c5ee667084cc678b8601237a8dfd346c031fbf1e708f08`;
-changing the URL does not change the baseline or disable verification. Without
-a matching local copy or working mirror, packaged builds remain blocked rather
-than silently using a newer LineageOS, RETCN, or already-patched boot image.
+The default [official 2026-10-10 boot.img](https://mirrorbits.lineageos.org/full/rtwo/20261010/boot.img)
+is 96 MiB, with SHA-256
+`60fbd11ac6eeeb7a59161721cc458a2ac283f1893a77e2265aab42972db85937`.
+No mirror override is needed while that URL remains available. This replaces
+the retired August 22 baseline, including its source pins—not just its URL.
+
+**Old LineageOS downloads can expire.** Save the original image, or supply a
+credential-free HTTPS mirror of the **same pinned boot image** through workflow
+input `base_boot_url` or repository variable `RTWO_BASE_BOOT_URL`. Changing the
+URL does not change the expected checksum. A different nightly requires a
+reviewed baseline update; older LineageOS, RETCN and already-patched boot images
+are not substitutes.
 
 For a complete local build with a saved base:
 
 ```sh
 VARIANT=resukisu-susfs PACKAGE_BOOT_IMAGE=1 \
-  RTWO_BASE_BOOT_IMAGE=/path/to/lineage-20260822/boot.img ./scripts/build-rtwo.sh
+  RTWO_BASE_BOOT_IMAGE=/path/to/lineage-20261010/boot.img ./scripts/build-rtwo.sh
 ```
 
 This also verifies the base before source sync. A raw-only local build (the
@@ -118,20 +124,21 @@ without recompiling:
 
 ```sh
 VARIANT=resukisu-susfs RTWO_IMAGE=/path/to/Image \
-  RTWO_BASE_BOOT_IMAGE=/path/to/lineage-20260822/boot.img ./scripts/package-rtwo-boot.sh
+  RTWO_BASE_BOOT_IMAGE=/path/to/lineage-20261010/boot.img ./scripts/package-rtwo-boot.sh
 ```
 
 The base/tooling pins are in [`config/rtwo/pins.env`](config/rtwo/pins.env).
-Keep the generated image paired with the matching W1TR36H.56-13 Lineage/vendor
-set; do not mix it with a slot whose kernel release, vendor modules, or KMI
-differs from the recorded baseline. Retain a known-good recovery image.
+Keep the generated image paired with the **2026-10-10 LineageOS** firmware and
+modules; do not mix it with a slot whose kernel release, vendor modules, or KMI
+differs from the recorded baseline. Matching source pins and a packaging check
+are not runtime/module-ABI validation. Retain a known-good recovery image.
 
 Validate pins/tests offline, or check packaging inputs without building:
 
 ```sh
 ./scripts/verify-rtwo-pins.sh
 python3 scripts/test-rtwo-boot.py
-RTWO_BASE_BOOT_IMAGE=/path/to/lineage-20260822/boot.img ./scripts/package-rtwo-boot.sh --prepare
+RTWO_BASE_BOOT_IMAGE=/path/to/lineage-20261010/boot.img ./scripts/package-rtwo-boot.sh --prepare
 ```
 
 ### Stock RETCN build target

@@ -67,8 +67,8 @@ class RetcnTests(unittest.TestCase):
     def test_pins_are_separate_from_lineage(self):
         self.assertEqual(r.load_pins()["KERNEL_REF"], "9c82b71884fdada085e6a396b7a527e1f1cdf0fc")
         lineage = (r.ROOT / "config/rtwo/pins.env").read_text()
-        self.assertIn("KERNEL_VERSION=5.15.208", lineage)
-        self.assertIn("LINEAGE_BOOT_SHA256=19e22bfd", lineage)
+        self.assertIn("KERNEL_VERSION=5.15.211", lineage)
+        self.assertIn("LINEAGE_BOOT_SHA256=60fbd11a", lineage)
         self.assertNotIn("LINEAGE_BOOT_URL", r.PIN_FILE.read_text())
         url = r.load_pins()["STOCK_BOOT_URL"]
         self.assertEqual(url, "https://filedn.com/l6a6JS020EU70J4xNAiVtum/boot.img")
