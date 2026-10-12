@@ -154,6 +154,14 @@ Both dynamic/static probes must pass before configuration, and stock
 Only **`resukisu-susfs`** is implemented for RETCN; no KPM or extra WildKernels
 performance/baseband patches are added.
 
+**35226 update blocked (2026-10-12):** RETCN retains ReSukiSU **35187**.
+Upstream is now [BakaSU](https://github.com/Baka-SU/BakaSU), but its
+[35226 revision](https://github.com/Baka-SU/BakaSU/commit/f6cb7e70c10ebde149f3121ae68b945514fd0801)
+[explicitly suspends SUSFS builds](https://github.com/Baka-SU/BakaSU/commit/48fa4bb7ec8bddb8ea932a8c9be0877f89a1fa73).
+The reviewed latest Android 13/5.15 SUSFS patch also references the removed
+`fake_state` SELinux symbol. Wait for a compatible upstream pair; changing only
+the root pin or removing the build guard is not a supported update.
+
 Use a case-sensitive Linux x86-64 builder with at least 35 GiB free (100 GiB
 recommended), enough RAM/swap for full LTO, and the dependencies listed in
 [the RETCN workflow](.github/workflows/build-rtwo-retcn.yml). The default build
