@@ -8,7 +8,6 @@ on:
       - '.github/workflows/build.yml'
       - 'config/**'
       - 'scripts/**'
-      - 'README.md'
 
 permissions:
   contents: read
@@ -35,6 +34,9 @@ jobs:
           sudo apt-get install --yes --no-install-recommends \
             bc bison build-essential ca-certificates cpio flex git libelf-dev \
             libssl-dev openssl perl python3 rsync unzip zip zstd
+
+      - name: Check launcher pin and checksum refusal
+        run: python3 scripts/test-yogi-sync.py -v
 
       - name: Build pinned source
         run: ./scripts/build.sh
