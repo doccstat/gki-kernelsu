@@ -3,6 +3,30 @@
 Pinned source-build wrappers for Pixel `yogi` / GS101, Motorola `rtwo`
 LineageOS, and stock RTWO RETCN. This is not a prebuilt-kernel mirror.
 
+## Current locked-stock Yogi: KernelSU LKM, not a replacement boot image
+
+For `yogi` on **`CD1A.260618.001.C3`**, kernel **6.12.69**, use
+[Root-My-Pixel](https://github.com/doccstat/Root-My-Pixel) with the
+[customized KernelSU build](https://github.com/doccstat/KernelSU/actions/workflows/build-manager.yml).
+Its source now integrates upstream
+[`96770dfb807fea61e06819e4cbb438384df54b63`](https://github.com/tiann/KernelSU/commit/96770dfb807fea61e06819e4cbb438384df54b63)
+(**UAPI 6**). The KMI stays **`android16-6.12`**, despite Android 17 userspace.
+The manager remains `com.lixingchi.kernelsu`, visibly named KernelSU, with the
+same signer. RMP takes the manager and its embedded `ksud`/LKMs from one signed
+APK so the components cannot drift through independent downloads.
+
+This source update still needs the signed CI artifacts and a separate device
+update. A full reboot followed by rooting with the new RMP build replaces the
+temporary driver; Soft Reboot retains the old driver. Keep the separate SUSFS
+LKM and the framework-only restart; do not flash a boot image or hot-unload
+KernelSU to upgrade this setup.
+
+The **6.12.89 / A9 full-kernel recipes below are separate experiments**, not the
+current C3 device baseline. Their Google, SukiSU/ReSukiSU and SUSFS pins are
+unchanged by this KernelSU update. The Motorola recipes are unchanged too.
+
+## Full-kernel build targets
+
 All build targets live on **`main`**. LineageOS and RETCN are separate build
 paths, not Git branches. Choose the matching workflow on `main`:
 
