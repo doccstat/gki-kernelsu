@@ -288,11 +288,13 @@ stock modules to load. The generated boot image still needs the matching stock
 `system_dlkm`, and verified-boot setup from the same factory baseline; it is
 not interchangeable with another build.
 
-GitHub Actions builds both variants on every push and on manual dispatch from
-`.github/workflows/build.yml`. The workflow pins the repo launcher checksum and
-all source commits; the runner image and GitHub
-Actions themselves are still external infrastructure and should be audited
-when long-term bit-for-bit reproducibility matters.
+GitHub Actions builds both variants when build scripts/configuration change,
+or on manual dispatch from `.github/workflows/build.yml`; README-only changes
+do not rebuild kernels. The repo 2.65 launcher uses an immutable upstream URL
+and its original SHA-256, not a checksum paired with a moving download URL.
+Run `python3 scripts/test-yogi-sync.py -v` for offline launcher/checksum checks.
+All kernel source commits are pinned; the runner image and GitHub Actions are
+still external infrastructure to audit for long-term bit-for-bit reproducibility.
 
 ## Updating for a new factory image
 
